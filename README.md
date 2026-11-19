@@ -231,3 +231,7 @@ python -m unittest discover -s tests
 ```
 
 No keyboard and no network needed.
+
+## Licence
+
+MIT, see [LICENSE](LICENSE).
