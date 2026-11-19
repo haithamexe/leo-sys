@@ -1,0 +1,892 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="leo-token" content="__TOKEN__">
+<title>leo-sys</title>
+<style>
+:root {
+  --bg: #f7f3ed; --surface: #ffffff; --surface-2: #f1ebe2; --ink: #211b17; --muted: #6b6159; --line: #e3dacd;
+  --accent: #c2410c; --on-accent: #ffffff; --ok: #15803d; --bad: #c0261b; --panel: #15110e; --led-off: #2a221d;
+  --radius: 14px; --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --sans: system-ui, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14110f; --surface: #1d1916; --surface-2: #26201c; --ink: #f4ede4; --muted: #a89c90; --line: #332b25;
+    --accent: #ff6018; --on-accent: #14110f; --ok: #4ade80; --bad: #ff7a6e; --panel: #0b0907; --led-off: #221b16;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14110f; --surface: #1d1916; --surface-2: #26201c; --ink: #f4ede4; --muted: #a89c90; --line: #332b25;
+  --accent: #ff6018; --on-accent: #14110f; --ok: #4ade80; --bad: #ff7a6e; --panel: #0b0907; --led-off: #221b16;
+}
+* { box-sizing: border-box; }
+html { color-scheme: light dark; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h1, h2, h3 { margin: 0; line-height: 1.2; }
+h2 { font-size: 22px; margin-bottom: var(--s4); }
+h3 { font-size: 15px; margin-bottom: var(--s2); }
+p { margin: 0 0 var(--s3); }
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); }
+
+/* top bar: always visible, so the screen, connection and the two big switches are one click away */
+.top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap;
+  padding: var(--s3) var(--s5); background: var(--surface); border-bottom: 1px solid var(--line); }
+.brand { font-family: var(--mono); font-weight: 700; letter-spacing: .02em; display: flex; align-items: center; gap: var(--s2); }
+.brand i { width: 12px; height: 12px; background: var(--accent); display: inline-block; border-radius: 3px; }
+.now { display: flex; align-items: center; gap: var(--s3); min-width: 0; flex: 1 1 260px; }
+.now .txt { min-width: 0; }
+.now .label { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); display: inline-block; margin-right: 6px; }
+.dot.on { background: var(--ok); }
+.quick { display: flex; gap: var(--s4); align-items: center; flex-wrap: wrap; }
+
+.shell { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--s5); max-width: 1120px; margin: 0 auto; padding: var(--s5); }
+nav { display: flex; flex-direction: column; gap: var(--s1); position: sticky; top: 84px; align-self: start; }
+nav button { text-align: left; background: none; border: 0; padding: 10px var(--s3); border-radius: 10px; cursor: pointer; color: var(--muted); }
+nav button:hover { background: var(--surface-2); color: var(--ink); }
+nav button[aria-current="page"] { background: var(--surface-2); color: var(--ink); font-weight: 600; box-shadow: inset 3px 0 0 var(--accent); }
+@media (max-width: 760px) {
+  .shell { grid-template-columns: 1fr; padding: var(--s4); gap: var(--s3); }
+  nav { flex-direction: row; overflow-x: auto; position: static; padding-bottom: var(--s1); }
+  nav button { white-space: nowrap; }
+  .top { padding: var(--s3) var(--s4); }
+}
+[hidden] { display: none !important; }  /* classes like .stack set display and would otherwise win over the hidden attribute */
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4); margin-bottom: var(--s4); }
+.grid { display: grid; gap: var(--s4); grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.row.between { justify-content: space-between; }
+.stack { display: flex; flex-direction: column; gap: var(--s3); }
+.field { display: flex; flex-direction: column; gap: var(--s1); font-size: 13px; color: var(--muted); }
+.field input, .field select { color: var(--ink); }
+input[type=text], input[type=number], input[type=time], select {
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; min-height: 40px; min-width: 0; }
+input[type=color] { width: 48px; height: 40px; padding: 2px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+input[type=range] { accent-color: var(--accent); width: 100%; min-height: 32px; }
+button.btn { background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 9px 14px; min-height: 40px; cursor: pointer; }
+button.btn:hover { border-color: var(--muted); }
+button.btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 600; }
+button.btn.danger { color: var(--bad); }
+button.btn:disabled { opacity: .5; cursor: not-allowed; }
+.chip { border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; background: var(--surface-2); cursor: pointer; min-height: 32px; }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+
+.switch { position: relative; display: inline-flex; flex: none; }
+.switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.switch span { width: 44px; height: 26px; border-radius: 999px; background: var(--line); transition: background .15s; position: relative; }
+.switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--surface); box-shadow: 0 0 0 1px var(--muted); transition: transform .15s; }
+.switch input:checked + span { background: var(--accent); }
+.switch input:checked + span::after { transform: translateX(18px); box-shadow: none; }
+.switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.setting { display: flex; align-items: center; justify-content: space-between; gap: var(--s4); padding: var(--s3) 0; border-top: 1px solid var(--line); }
+.setting:first-of-type { border-top: 0; }
+.setting .what b { display: block; font-weight: 600; }
+.setting .what small { color: var(--muted); }
+
+canvas.led { display: block; border-radius: 8px; background: var(--panel); }
+.faces { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: var(--s3); }
+.face { display: flex; flex-direction: column; align-items: center; gap: var(--s2); padding: var(--s3); border: 1px solid var(--line);
+  border-radius: 12px; background: var(--surface-2); cursor: pointer; text-align: center; }
+.face:hover { border-color: var(--accent); }
+.face small { color: var(--muted); }
+.mini-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: var(--s2); }
+
+.badge { font-family: var(--mono); font-size: 11px; padding: 1px 7px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line); text-transform: uppercase; }
+.badge.mcp { color: var(--accent); } .badge.hook { color: var(--ok); } .badge.gui { color: var(--ink); } .badge.system { color: var(--muted); }
+.log { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow: auto; }
+.log li { display: flex; gap: var(--s3); align-items: baseline; padding: 7px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.log li:first-child { border-top: 0; }
+.log time { color: var(--muted); font-family: var(--mono); font-size: 12px; flex: none; }
+.log .bad { color: var(--bad); }
+.readout { font-family: var(--mono); font-size: 44px; font-weight: 700; letter-spacing: .04em; }
+.days { display: flex; gap: 4px; flex-wrap: wrap; }
+.btn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--s2); }
+.btn-grid .btn { text-align: left; }
+.score { display: flex; align-items: center; gap: var(--s3); }
+.score b { font-family: var(--mono); font-size: 32px; min-width: 56px; text-align: center; }
+.rot { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: var(--s2); align-items: center; padding-bottom: var(--s3); border-bottom: 1px solid var(--line); }
+.rot select, .rot input[type=text] { width: 100% !important; }
+.empty { color: var(--muted); padding: var(--s3) 0; }
+.banner { border-color: var(--accent); }
+.sw { display: inline-block; width: 12px; height: 12px; border-radius: 4px; margin-right: 6px; vertical-align: -1px; }
+.site-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 8px; background: var(--muted); }
+.small { font-size: 13px; }
+ul.tips { margin: 0; padding-left: var(--s5); } ul.tips li { margin-bottom: var(--s2); }
+#toast { position: fixed; bottom: var(--s5); left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: 12px; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 90vw; z-index: 9; }
+#toast.show { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* leo-sys: the matrix is wide (63 x 5), so its canvases size to the card instead of a square */
+canvas.led.wide { max-width: 100%; }
+.badge.released { color: var(--muted); }
+.faces { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.face[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.badge.app { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand"><i></i>leo-sys</div>
+  <div class="now">
+    <canvas id="miniScreen" class="led" aria-hidden="true"></canvas>
+    <div class="txt">
+      <div class="label" id="nowLabel">Connecting</div>
+      <div class="muted" style="font-size:13px"><span class="dot" id="connDot"></span><span id="connText">Looking for the keyboard</span></div>
+    </div>
+  </div>
+  <div class="quick">
+    <label class="row" style="gap:8px"><span class="switch"><input type="checkbox" role="switch" id="claudeSwitch"><span></span></span> Claude control</label>
+    <label class="row" style="gap:8px"><span class="switch"><input type="checkbox" role="switch" id="pinSwitch"><span></span></span> Pin keyboard</label>
+    <button class="btn" id="themeBtn" aria-label="Switch light or dark theme">Theme</button>
+  </div>
+</header>
+
+<div class="shell">
+  <nav aria-label="Sections" id="nav">
+    <button data-tab="dash">Dashboard</button>
+    <button data-tab="apps">Apps</button>
+    <button data-tab="claude">Claude</button>
+    <button data-tab="faces">Faces and keys</button>
+    <button data-tab="settings">Settings</button>
+  </nav>
+
+  <main>
+    <!-- DASHBOARD -->
+    <section id="tab-dash">
+      <h2>Dashboard</h2>
+      <div class="card banner" id="appBanner" hidden><b>The Leobog app is open.</b> It writes to the same screens and will fight leo-sys for them. Close it from its tray icon.</div>
+      <div class="card banner" id="heldBanner" hidden><div class="row between"><span id="heldText"></span><button class="btn primary" id="resumeBtn">Resume live status</button></div></div>
+      <p class="muted" id="sessionSummary"></p>
+      <div class="card">
+        <h3>On the keyboard now</h3>
+        <canvas id="bigScreen" class="led wide" aria-label="Live copy of the keyboard's LED matrix"></canvas>
+        <div class="row between" style="margin-top:var(--s3)">
+          <div><div id="dashLabel" style="font-weight:600">-</div>
+            <div class="muted" style="font-size:13px">set by <span class="badge" id="dashSource">-</span></div></div>
+        </div>
+        <h3 style="margin-top:var(--s4)">Key lights</h3>
+        <canvas id="kbd" class="led wide" aria-label="Live copy of the key lights"></canvas>
+        <p class="muted small" id="kbdCaption" style="margin:var(--s2) 0 0"></p>
+      </div>
+      <div class="card"><h3>Sessions</h3><div id="sessionList"></div></div>
+      <div class="card">
+        <h3>Activity</h3>
+        <p class="muted" style="font-size:13px">Everything that changed the keyboard, and anything Claude tried that your settings blocked.</p>
+        <ul class="log" id="log"></ul>
+      </div>
+    </section>
+
+    <!-- APPS -->
+    <section id="tab-apps" hidden>
+      <h2>Apps</h2>
+      <p class="muted">What the matrix and keys show. Claude takes over only when it needs you, unless you change that in Settings, Live status, or pick the Claude app below.</p>
+      <div class="card stack"><h3>Modes</h3>
+        <p class="muted small" style="margin:0">A few settings switched together. Switching a mode off puts back what you had before.</p>
+        <div id="modeList"></div>
+      </div>
+      <div class="card"><h3>LED matrix</h3>
+        <p class="muted" style="font-size:13px">Off gives the matrix back to the keyboard's own effects.</p>
+        <div class="faces" id="matrixApps"></div></div>
+      <div class="card" id="rotationCard"><h3>Rotation</h3>
+        <p class="muted" style="font-size:13px">Shown in turn when Rotation is picked above.</p>
+        <div id="rotationList"></div>
+        <div class="row" style="margin-top:var(--s3)"><button class="btn" id="rotationAdd">Add an app</button></div></div>
+      <div class="grid">
+        <div class="card"><h3>Clock</h3>
+          <div class="setting"><div class="what"><b>24-hour time</b><small>Off: 1 to 12.</small></div>
+            <label class="switch"><input type="checkbox" role="switch" data-set="apps.clock.24h" aria-label="24-hour time"><span></span></label></div>
+          <div class="setting"><div class="what"><b>Seconds</b></div>
+            <label class="switch"><input type="checkbox" role="switch" data-set="apps.clock.seconds" aria-label="Show seconds"><span></span></label></div>
+          <div class="setting"><div class="what"><b>Day and date</b></div>
+            <label class="switch"><input type="checkbox" role="switch" data-set="apps.clock.date" aria-label="Show the day and date"><span></span></label></div>
+          <label class="field" style="margin-top:var(--s3)">Colour<input type="color" data-set="apps.clock.colour"></label>
+        </div>
+        <div class="card stack"><h3>Message</h3>
+          <label class="field">Text<input type="text" maxlength="80" data-set="apps.message.text" placeholder="BACK IN 5 MIN"></label>
+          <label class="field">Colour<input type="color" data-set="apps.message.colour"></label>
+          <p class="muted small" style="margin:0">Stays until you change it. About 15 characters fit; longer text scrolls.</p>
+        </div>
+        <div class="card stack"><h3>PC monitor</h3>
+          <label class="field">Ping this<input type="text" maxlength="253" data-set="apps.monitor.ping_host" placeholder="1.1.1.1" spellcheck="false"></label>
+          <p class="muted small" style="margin:0">A name or IPv4 address, pinged every 2 seconds only while the Ping app is on the matrix or in the rotation.</p>
+          <div class="setting"><div class="what"><b>Speeds in bits</b><small>Like speed tests: 12M means 12 megabits a second. Off: bytes.</small></div>
+            <label class="switch"><input type="checkbox" role="switch" data-set="apps.monitor.net_bits" aria-label="Speeds in bits"><span></span></label></div>
+          <div id="pcReadings"></div>
+        </div>
+        <div class="card stack"><h3>Now playing</h3>
+          <label class="field">Colour<input type="color" data-set="apps.media.colour"></label>
+          <p class="muted small" style="margin:0">Works with Spotify, YouTube and other sites in any browser, VLC and most players. The matrix font has Latin letters only, so an Arabic title shows the artist or the player's name instead.</p>
+        </div>
+        <div class="card stack"><h3>Matrix album</h3>
+          <p class="muted small" style="margin:0">Pictures and GIFs from a folder, scaled down to 63 × 5 dots and played in a loop. Show it by picking Album in the LED matrix list above. Nothing is stored on the keyboard. A GIF plays at its own speed and repeats until it has lasted at least the seconds you set.</p>
+          <label class="field">Folder<input type="text" data-set="albums.matrix.folder" placeholder="C:\Pictures\pixel-art" spellcheck="false"></label>
+          <div class="row"><button class="btn" data-pick="matrix">Choose folder</button></div>
+          <label class="field">Fit<select data-set="albums.matrix.fit">
+            <option value="contain">Keep proportions, black bars</option>
+            <option value="cover">Fill the screen, crop the edges</option>
+            <option value="stretch">Stretch to fill</option></select></label>
+          <label class="field">Seconds for each picture<input type="number" min="1" max="3600" data-set="albums.matrix.seconds"></label>
+          <div class="setting"><div class="what"><b>Shuffle</b><small>A new random order each time the album loads.</small></div>
+            <label class="switch"><input type="checkbox" role="switch" data-set="albums.matrix.shuffle" aria-label="Shuffle the matrix album"><span></span></label></div>
+          <p class="muted small" style="margin:0" id="albumMatrixStatus"></p>
+        </div>
+      </div>
+      <div class="card"><h3>Key lights</h3>
+        <p class="muted" style="font-size:13px">Claude's key effects play only when its status takes over (Settings, Live status).</p>
+        <div class="row" id="keyBases"></div>
+        <label class="field" style="margin-top:var(--s3); max-width:120px">Colour<input type="color" data-set="keys.colour"></label>
+        <div class="setting" style="margin-top:var(--s3)"><div class="what"><b>Caps Lock key lights white while on</b><small>Only while leo-sys drives the keys: on the keyboard's own lighting there is nothing to draw on.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="keys.indicators.caps" aria-label="Caps Lock indicator"><span></span></label></div>
+        <div class="setting"><div class="what"><b>Volume on the number row</b><small>For 2 seconds after the volume changes: 1 to 0 light up to the level, all red when muted. Shows even on the keyboard's own lighting.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="keys.indicators.volume" aria-label="Volume on the number row"><span></span></label></div>
+        <div class="setting"><div class="what"><b>A red key while the microphone is muted</b><small>Only while leo-sys drives the keys.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="keys.indicators.mic" aria-label="A red key while the microphone is muted"><span></span></label></div>
+        <label class="field" style="margin-top:var(--s3); max-width:120px">Microphone key<select data-set="keys.indicators.mic_key" id="micKey"></select></label>
+        <div class="setting"><div class="what"><b>A pulsing orange key while a program is using the microphone</b><small>From Windows' own privacy record. Only while leo-sys drives the keys.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="keys.indicators.mic_use" aria-label="A pulsing orange key while a program is using the microphone"><span></span></label></div>
+        <label class="field" style="margin-top:var(--s3); max-width:120px">Key for the microphone in use<select data-set="keys.indicators.mic_use_key" id="micUseKey"></select></label>
+        <div class="setting"><div class="what"><b>A pulsing red key while a program is using the camera</b><small>From the same record. Only while leo-sys drives the keys.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="keys.indicators.cam_use" aria-label="A pulsing red key while a program is using the camera"><span></span></label></div>
+        <label class="field" style="margin-top:var(--s3); max-width:120px">Key for the camera in use<select data-set="keys.indicators.cam_key" id="camKey"></select></label>
+        <p class="muted small" style="margin:0" id="privacyNow"></p>
+      </div>
+      <div class="card stack"><h3>Smart keys</h3>
+        <p class="muted small" style="margin:0">Hold Ctrl, Alt, Shift or the Windows key and only the keys that do something with it glow, coloured by what they do. leo-sys looks at which of those four is held and at the file name of the program that has focus. It never sees what you type.</p>
+        <div class="setting"><div class="what"><b>Smart keys</b><small>Works while leo-sys drives the keys and no Claude effect or picked colour is showing. On the keyboard's own lighting, the other keys go dark while a modifier is held.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="keys.smart.enabled" aria-label="Smart keys"><span></span></label></div>
+        <div class="setting"><div class="what"><b>Light the shortcut keys while a modifier is held</b></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="keys.smart.modifiers" aria-label="Light the shortcut keys while a modifier is held"><span></span></label></div>
+        <div class="setting"><div class="what"><b>Glow a program's Ctrl shortcuts while it has focus</b><small>Softly, over your key lights. Only for programs with their own map, and not over the keyboard's own lighting.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="keys.smart.program_hint" aria-label="Glow a program's Ctrl shortcuts while it has focus"><span></span></label></div>
+        <div class="row" id="smartLegend"></div>
+        <p class="muted small" style="margin:0" id="smartNow"></p>
+        <p class="muted small" style="margin:0" id="smartApps"></p>
+        <p class="muted small" style="margin:0" id="smartProblems"></p>
+        <div class="row"><button class="btn" id="smartExample">Create an example shortcuts file</button></div>
+      </div>
+      <div class="card stack"><h3>Typing speed and heatmap</h3>
+        <p class="muted small" style="margin:0">Counts only. While this is on, leo-sys asks Windows about 100 times a second which keys are down and counts each key press. It keeps, in memory only, a count for each key and how many typing keys were pressed in each ten-second stretch of the last six minutes. It never keeps which key followed which, the time of any single key press, or any text, and nothing is saved or sent anywhere. The Typing heatmap key light shows each key's relative use as a colour, in this panel's picture of the keyboard too; the counts themselves are never sent here. Switching it off, Reset, or restarting leo-sys wipes it all. It is not a keyboard hook, but security software may still notice a program asking about letter keys.</p>
+        <div class="setting"><div class="what"><b>Count key presses</b><small>Off: nothing is counted and any counts are thrown away. It feeds the Typing speed app and the Typing heatmap key light.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="apps.typing.enabled" aria-label="Count key presses"><span></span></label></div>
+        <p class="muted small" style="margin:0" id="typingNow"></p>
+        <div class="row"><button class="btn" id="typingReset">Reset the counts</button></div>
+      </div>
+      <div class="card stack"><h3>Taskbar alerts</h3>
+        <p class="muted small" style="margin:0">When a program flashes its taskbar button (Discord, WhatsApp, a browser tab with a message), the keys flash in its colour and the matrix shows its name. leo-sys is told by Windows that a button flashed and keeps only the program's file name, never the window's title or any message text. It is not a keyboard hook.</p>
+        <div class="setting"><div class="what"><b>Flash the keys when a program flashes in the taskbar</b><small>Off: leo-sys does not listen for taskbar flashes at all.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="alerts.taskbar.enabled" aria-label="Flash the keys when a program flashes in the taskbar"><span></span></label></div>
+        <label class="field">Seconds an alert stays<input type="number" min="1" max="60" data-set="alerts.taskbar.seconds"></label>
+        <label class="field">Seconds before the same program can alert again<input type="number" min="0" max="3600" data-set="alerts.taskbar.cooldown_s"></label>
+        <label class="field">Programs to ignore (file names, separated by commas)<input type="text" data-set="alerts.taskbar.ignore" placeholder="msrdc.exe, steam.exe" spellcheck="false"></label>
+        <label class="field">Only these programs (leave empty for all)<input type="text" data-set="alerts.taskbar.only" placeholder="discord.exe, whatsapp.exe" spellcheck="false"></label>
+        <div id="alertSeen"></div>
+        <p class="muted small" style="margin:0" id="alertStatus"></p>
+        <div class="row"><button class="btn" id="alertTest">Test an alert</button></div>
+      </div>
+      <div class="card stack"><h3>Screen colours</h3>
+        <p class="muted small" style="margin:0">Pick Screen colours in the Key lights list above and the keys follow the colours of your screen. Windows shrinks the screen to a 32 × 18 grid of colours about 10 times a second and only that grid is kept, in memory. Nothing is saved or sent anywhere, and the screen is not read at all unless Screen colours is picked. Only the main monitor is read, and some protected video shows as black.</p>
+        <label class="field">Mode<select data-set="keys.screen.mode">
+          <option value="edges">Edges: each key takes the colour at the nearest edge of the screen</option>
+          <option value="mirror">Mirror: the keyboard is a tiny picture of the screen</option></select></label>
+        <label class="field">Colour boost (1 is the most faithful)<input type="number" min="0.5" max="3" step="0.1" data-set="keys.screen.saturation"></label>
+        <label class="field">Brightness boost (1 is the most faithful)<input type="number" min="0.5" max="3" step="0.1" data-set="keys.screen.gain"></label>
+        <p class="muted small" style="margin:0">White balance: if the keys look tinted next to your screen, lower the channel that is too strong (100 leaves it alone).</p>
+        <div class="row">
+          <label class="field">Red %<input type="number" min="0" max="200" data-set="keys.screen.balance.r"></label>
+          <label class="field">Green %<input type="number" min="0" max="200" data-set="keys.screen.balance.g"></label>
+          <label class="field">Blue %<input type="number" min="0" max="200" data-set="keys.screen.balance.b"></label>
+        </div>
+        <label class="field">Smoothing: 0 is sharp, 0.9 is slow<input type="number" min="0" max="0.9" step="0.1" data-set="keys.screen.smooth"></label>
+        <label class="field">Updates per second<input type="number" min="2" max="15" data-set="keys.screen.fps"></label>
+        <p class="muted small" style="margin:0" id="screenStatus"></p>
+      </div>
+      <div class="card stack"><h3>Weather and prayer times</h3>
+        <p class="muted small" style="margin:0">Both are apps for the matrix: pick Weather or Prayer times in the LED matrix list above, or add them to the Rotation. Each has its own switch, and one that is switched off is skipped.</p>
+        <label class="field">City<select id="citySelect"></select></label>
+        <div class="row">
+          <label class="field">Latitude<input type="number" step="0.01" min="-90" max="90" id="cityLat"></label>
+          <label class="field">Longitude<input type="number" step="0.01" min="-180" max="180" id="cityLon"></label>
+        </div>
+        <div class="setting"><div class="what"><b>Weather</b><small>From Open-Meteo, over the internet. Each request carries your city's coordinates (to about a kilometre), and like any web request the service also sees your internet address. At most one request every 30 minutes, and only while the Weather app is on the matrix or in the rotation (it stops about a minute after). Off: nothing is ever sent.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="apps.weather.enabled" aria-label="Weather"><span></span></label></div>
+        <div class="setting"><div class="what"><b>Fahrenheit</b><small>Off: Celsius.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="apps.weather.fahrenheit" aria-label="Fahrenheit"><span></span></label></div>
+        <p class="muted small" style="margin:0" id="weatherNow"></p>
+        <div class="setting"><div class="what"><b>Prayer times</b><small>Worked out on your PC from the date and your city. Nothing is sent anywhere. The times follow this PC's time zone.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="apps.prayer.enabled" aria-label="Prayer times"><span></span></label></div>
+        <label class="field">Calculation method<select data-set="apps.prayer.method" id="prayerMethod"></select></label>
+        <label class="field">Asr<select data-set="apps.prayer.asr">
+          <option value="standard">Standard: the shadow is as long as the object</option>
+          <option value="hanafi">Hanafi: the shadow is twice as long</option></select></label>
+        <div id="prayerShow"></div>
+        <div class="row" id="prayerOffsets"></div>
+        <p class="muted small" style="margin:0">Minutes to add to each time (a negative number takes minutes off), to match a timetable you trust.</p>
+        <p class="muted small" style="margin:0" id="prayerToday"></p>
+      </div>
+    </section>
+
+    <!-- CLAUDE -->
+    <section id="tab-claude" hidden>
+      <h2>What Claude may do</h2>
+      <p class="muted">These rules apply to Claude's tools and to the automatic status hooks. Your own clicks in this panel are never limited. A blocked request shows up in Activity, and Claude is told why.</p>
+      <div class="card">
+        <div class="setting"><div class="what"><b>Claude control</b><small>Master switch. Off means Claude and the hooks cannot touch the keyboard, and it goes back to its own lighting.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="claude.enabled" aria-label="Claude control"><span></span></label></div>
+        <div class="setting"><div class="what"><b>Automatic live status</b><small>The matrix and keys follow what Claude Code is doing (thinking, working, done, needs you). No tool call needed.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="claude.hooks" aria-label="Automatic live status"><span></span></label></div>
+        <div class="setting"><div class="what"><b>Claude may override a pinned keyboard</b><small>Normally pinning blocks Claude completely.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="claude.override_pin" aria-label="Override pin"><span></span></label></div>
+      </div>
+      <div class="card"><h3>Tools Claude can call</h3><div id="toolList"></div></div>
+      <div class="card"><h3>Faces Claude can show</h3>
+        <p class="muted" style="font-size:13px">Switch a face off and Claude can no longer show it (the live status skips it too).</p>
+        <div class="faces" id="moodToggles"></div></div>
+      <div class="grid">
+        <div class="card stack"><h3>Limits</h3>
+          <label class="field">Minimum seconds between Claude's changes<input type="number" min="0" max="60" step="0.5" data-set="claude.min_interval_s"></label>
+          <label class="field">Longest message (characters)<input type="number" min="1" max="80" data-set="claude.max_text_chars"></label>
+        </div>
+        <div class="card stack"><h3>Quiet hours</h3>
+          <div class="setting" style="border:0;padding:0"><div class="what"><b>Block Claude during these hours</b><small>The keyboard keeps its own lighting.</small></div>
+            <label class="switch"><input type="checkbox" role="switch" data-set="claude.quiet_hours.enabled" aria-label="Quiet hours"><span></span></label></div>
+          <div class="row"><label class="field">From<input type="time" data-set="claude.quiet_hours.start"></label>
+            <label class="field">Until<input type="time" data-set="claude.quiet_hours.end"></label></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FACES AND KEYS -->
+    <section id="tab-faces" hidden>
+      <h2>Faces and keys</h2>
+      <p class="muted">Try things on the keyboard. What you pick stays for the hold time in Settings, then the live status comes back.</p>
+      <div class="card"><h3>Faces</h3><p class="muted" style="font-size:13px">Click one to show it on the matrix.</p><div class="faces" id="faceGallery"></div></div>
+      <div class="card stack"><h3>Message</h3>
+        <div class="row">
+          <label class="field" style="flex:1; min-width:200px">Message<input type="text" id="msgText" maxlength="80" placeholder="BACK IN 5 MIN"></label>
+          <label class="field">Colour<input type="color" id="msgColor" value="#ff6018"></label>
+          <button class="btn primary" id="msgSend" style="align-self:flex-end">Show</button>
+        </div>
+        <p class="muted" style="font-size:13px;margin:0">About 15 characters fit; longer messages scroll. Letters, numbers and . ! ? : - + / _ , % ' ( ) = &lt; &gt; # are supported.</p>
+      </div>
+      <div class="card stack"><h3>Key lights</h3>
+        <div class="row">
+          <label class="field">Colour<input type="color" id="keyColor" value="#ff6018"></label>
+          <button class="btn primary" id="keySend" style="align-self:flex-end">Light every key</button>
+          <button class="btn" id="keyOff" style="align-self:flex-end">Hand keys back</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="tab-settings" hidden>
+      <h2>Settings</h2>
+      <div class="card stack"><h3>Keyboard</h3>
+        <div><span class="dot" id="connDot2"></span><span id="connText2"></span></div>
+        <p class="muted small" id="connErr" style="margin:0"></p>
+        <p class="muted small" style="margin:0">The screens only work over the USB cable. Close the Leobog app while leo-sys runs.</p>
+        <div class="row"><button class="btn" id="reconnectBtn">Reconnect</button></div>
+      </div>
+      <div class="card stack"><h3>Brightness</h3>
+        <p class="muted small" style="margin:0">Dims the colours leo-sys sends. The keyboard's own lighting is left alone.</p>
+        <input type="range" id="brightness" min="10" max="100" step="5" aria-label="Brightness">
+        <div class="row between"><span class="muted small">Matrix and keys</span><span class="mono" id="brightVal"></span></div>
+        <label class="field" style="max-width:120px">Colour correction<input type="number" min="1" max="3" step="0.1" data-set="colour_gamma"></label>
+        <p class="muted small" style="margin:0">The LEDs wash colours out toward pale yellow. 2.2 keeps Claude orange orange; higher is deeper, 1 is off. Matrix and keys only.</p>
+      </div>
+      <div class="card"><h3>Live status</h3>
+        <label class="field">Claude's status takes over from your apps<select data-set="scene.claude_takes_over">
+          <option value="alerts">Only when it needs me, or a tool fails</option>
+          <option value="always">Always, while it works</option>
+          <option value="never">Never</option></select></label>
+        <p class="muted small" style="margin:0">Picking the Claude app on the Apps page, or putting it in the rotation, makes this Always.</p>
+        <div class="setting"><div class="what"><b>Say which tool is running</b><small>EDITING, TESTING, SEARCHING... instead of WORKING.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="scene.show_tool" aria-label="Say which tool is running"><span></span></label></div>
+        <div class="setting"><div class="what"><b>Session dots</b><small>With several sessions open, one dot each at the right edge of the matrix.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="scene.session_dots" aria-label="Session dots"><span></span></label></div>
+        <div class="setting"><div class="what"><b>Flash when a tool fails</b><small>A short red error face and blink.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="scene.reactions" aria-label="Flash when a tool fails"><span></span></label></div>
+        <div class="row" style="margin-top:var(--s3)">
+          <label class="field">Seconds DONE stays up<input type="number" min="0" max="3600" data-set="scene.done_seconds"></label>
+          <label class="field">Seconds a picked face or message holds<input type="number" min="3" max="3600" data-set="scene.hold_seconds"></label>
+        </div>
+      </div>
+      <div class="card"><h3>Key lights</h3>
+        <div class="setting"><div class="what"><b>Key lights follow Claude</b><small>Off: the keys keep the keyboard's own lighting.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="keys.enabled" aria-label="Key lights follow Claude"><span></span></label></div>
+        <div id="keyMoods"></div>
+      </div>
+      <div class="card stack"><h3>Push from scripts</h3>
+        <p class="muted small" style="margin:0">Scripts and other programs on this PC can show text or a colour with the leo-sys command, for example when a build finishes. It works only on this PC. Anything that can run commands on this PC can use it, Claude Code included, and Claude's own switches do not limit it; this switch does, and it starts off.</p>
+        <div class="setting"><div class="what"><b>Allow pushes from scripts</b><small>Off: every push is refused.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="push.enabled" aria-label="Allow pushes from scripts"><span></span></label></div>
+        <label class="field">Seconds a push stays when the script does not say<input type="number" min="1" max="300" data-set="push.seconds"></label>
+        <p class="muted small mono" style="margin:0; white-space:pre-wrap; overflow-wrap:anywhere" id="pushExample"></p>
+      </div>
+      <div class="card"><h3>Windows</h3>
+        <div class="setting"><div class="what"><b>Start with Windows</b><small>Runs in the background with no window.</small></div>
+          <label class="switch"><input type="checkbox" role="switch" data-set="autostart" aria-label="Start with Windows"><span></span></label></div>
+        <div class="row" style="margin-top:var(--s3)">
+          <button class="btn" id="shortcutDesk">Add a desktop icon</button>
+          <button class="btn" id="shortcutStart">Add to the Start menu</button>
+          <button class="btn danger" id="quitBtn">Stop service</button>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+const TOKEN = document.querySelector('meta[name=leo-token]').content;
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+let META = null, SETTINGS = null, STATE = null;
+
+function el(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else if (v === true) e.setAttribute(k, ''); else if (v !== false && v != null) e.setAttribute(k, v);
+  }
+  for (const c of kids.flat()) e.append(c instanceof Node ? c : document.createTextNode(c));
+  return e;
+}
+async function api(path, body) {
+  const r = await fetch(path, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: { 'X-Leo': '1', 'Content-Type': 'application/json', 'X-Leo-Token': TOKEN },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return r.json();
+}
+const cmd = async (req, quiet) => {
+  try {
+    const r = await api('/api/cmd', { req, source: 'gui' });
+    if (!r.ok && !quiet) toast(r.error || r.denied || 'Request failed');
+    refresh();
+    return r;
+  } catch (e) { toast('Cannot reach the service'); }
+};
+let toastTimer;
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+/* ---- the 63 x 5 matrix ---- */
+const MW = 63, MH = 5;
+function sizeCanvas(c, w, h) {
+  const dpr = devicePixelRatio || 1; c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+  c.style.width = w + 'px'; c.style.height = h + 'px';
+}
+function fitMatrix(c, maxW) {
+  const w = Math.min(maxW, c.parentElement.clientWidth || maxW); sizeCanvas(c, w, Math.round(w * MH / MW));
+}
+function drawMatrix(c, hex) {
+  const g = c.getContext('2d'), cell = c.width / MW;
+  g.fillStyle = css('--panel'); g.fillRect(0, 0, c.width, c.height);
+  const off = css('--led-off');
+  for (let i = 0; i < MW * MH; i++) {
+    const x = i % MW, y = (i / MW) | 0;
+    let col = off;
+    if (hex) {
+      const r = parseInt(hex.substr(i * 6, 2), 16), gg = parseInt(hex.substr(i * 6 + 2, 2), 16), b = parseInt(hex.substr(i * 6 + 4, 2), 16);
+      if (r + gg + b > 0) col = `rgb(${r},${gg},${b})`;
+    }
+    g.fillStyle = col; g.beginPath(); g.arc((x + .5) * cell, (y + .5) * cell, cell * .4, 0, 6.2832); g.fill();
+  }
+}
+class Player {
+  constructor(canvas) { this.c = canvas; this.t = null; this.frames = null; }
+  play(frames) {
+    clearTimeout(this.t); this.frames = frames;
+    if (!frames || reduceMotion || frames.length === 1) return drawMatrix(this.c, frames ? frames[0] : null);
+    let i = 0;
+    const step = () => { drawMatrix(this.c, frames[i]); i = (i + 1) % frames.length; this.t = setTimeout(step, 250); };
+    step();
+  }
+}
+
+/* ---- the key lights picture ---- */
+function keyRects(w, h) {
+  const rows = {};
+  for (const k of META.keys) (rows[k.row] = rows[k.row] || []).push(k);
+  const out = [], rh = h / 5;
+  for (const r of Object.values(rows)) {
+    r.sort((a, b) => a.x - b.x);
+    r.forEach((k, i) => {
+      const left = i ? k.x - r[i - 1].x : null, right = i < r.length - 1 ? r[i + 1].x - k.x : null;
+      const span = Math.min(left ?? right, right ?? left) || 50;   // the gap to the nearer neighbour
+      const kw = span * w / 1000 - 4;
+      out.push({ idx: k.idx, x: k.x * w / 1000 - kw / 2, y: k.row * rh + 2, w: kw, h: rh - 4 });
+    });
+  }
+  return out;
+}
+function drawKeys(c, cols) {
+  const g = c.getContext('2d'), dpr = devicePixelRatio || 1;
+  g.fillStyle = css('--panel'); g.fillRect(0, 0, c.width, c.height);
+  const off = css('--led-off');
+  for (const k of keyRects(c.width, c.height)) {
+    g.fillStyle = cols && cols[k.idx] ? '#' + cols[k.idx] : off;
+    g.beginPath(); g.roundRect(k.x, k.y, Math.max(4, k.w), k.h, 4 * dpr); g.fill();
+  }
+}
+
+/* ---- tabs ---- */
+function showTab(name) {
+  if (!$('#tab-' + name)) name = 'dash';
+  $$('main > section').forEach((s) => (s.hidden = s.id !== 'tab-' + name));
+  $$('#nav button').forEach((b) => b.setAttribute('aria-current', b.dataset.tab === name ? 'page' : 'false'));
+  history.replaceState(null, '', '#' + name);
+  if (name === 'dash') fitAll();
+}
+$('#nav').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) showTab(b.dataset.tab); });
+addEventListener('hashchange', () => showTab(location.hash.slice(1)));
+
+/* ---- settings binding ---- */
+const getPath = (o, p) => p.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
+function patchFor(path, value) { const root = {}; let o = root; const ks = path.split('.'); ks.forEach((k, i) => { o[k] = i === ks.length - 1 ? value : (o[k] = {}); o = o[k]; }); return root; }
+async function saveSettings(patch) {
+  try { SETTINGS = await api('/api/settings', patch); renderSettings(); } catch (e) { toast('Could not save'); }
+}
+function renderSettings() {
+  $$('[data-set]').forEach((i) => {
+    const v = getPath(SETTINGS, i.dataset.set);
+    if (v === undefined || document.activeElement === i) return;
+    if (i.type === 'checkbox') i.checked = !!v; else i.value = v;
+  });
+  $$('[data-tool]').forEach((i) => (i.checked = !!SETTINGS.claude.tools[i.dataset.tool]));
+  $$('[data-mood]').forEach((i) => (i.checked = !!SETTINGS.claude.moods[i.dataset.mood]));
+  $$('[data-keymood]').forEach((i) => (i.checked = !!SETTINGS.keys.moods[i.dataset.keymood]));
+  $('#claudeSwitch').checked = SETTINGS.claude.enabled;
+  renderApps();
+  const br = $('#brightness'); if (document.activeElement !== br) br.value = SETTINGS.brightness;
+  $('#brightVal').textContent = SETTINGS.brightness + '%';
+}
+document.addEventListener('change', (e) => {
+  const i = e.target; if (!i.dataset) return;
+  if (i.dataset.set) {
+    let v = i.type === 'checkbox' ? i.checked : i.type === 'number' ? Number(i.value) : i.value;
+    if (i.type === 'number' && !Number.isFinite(v)) return;
+    saveSettings(patchFor(i.dataset.set, v));
+  } else if (i.dataset.tool) saveSettings({ claude: { tools: { [i.dataset.tool]: i.checked } } });
+  else if (i.dataset.mood) saveSettings({ claude: { moods: { [i.dataset.mood]: i.checked } } });
+  else if (i.dataset.keymood) saveSettings({ keys: { moods: { [i.dataset.keymood]: i.checked } } });
+});
+$('#claudeSwitch').addEventListener('change', (e) => saveSettings({ claude: { enabled: e.target.checked } }));
+$('#pinSwitch').addEventListener('change', (e) => cmd({ cmd: 'pin', value: e.target.checked }));
+$('#brightness').addEventListener('input', (e) => { $('#brightVal').textContent = e.target.value + '%'; });
+$('#brightness').addEventListener('change', (e) => saveSettings({ brightness: Number(e.target.value) }));
+
+/* ---- state polling ---- */
+let bigPlayer, miniPlayer, lastMatrix = '', lastKeys = '';
+const STATE_TEXT = { idle: 'idle', thinking: 'thinking', working: 'working', attention: 'needs you', done: 'done', error: 'error', sleep: 'asleep' };
+const dur = (s) => (s < 90 ? Math.round(s) + 's' : s < 5400 ? Math.round(s / 60) + ' min' : Math.round(s / 3600) + ' h');
+function setList(node, sig, build) { if (node.dataset.sig === sig) return; node.dataset.sig = sig; node.replaceChildren(...build()); }
+async function refresh() {
+  let s; try { s = await api('/api/state'); } catch (e) { $('#connText').textContent = 'Service stopped'; $('#connDot').classList.remove('on'); return; }
+  STATE = s; renderState(s);
+}
+function renderState(s) {
+  const conn = s.connected ? 'Connected to the ' + s.device : 'Not connected' + (s.error ? ' · ' + s.error : '');
+  for (const d of ['#connDot', '#connDot2']) $(d).classList.toggle('on', s.connected);
+  $('#connText').textContent = conn; $('#connText2').textContent = s.connected ? 'Connected to the ' + s.device : 'Not connected';
+  $('#connErr').textContent = s.connected ? '' : s.error;
+  $('#appBanner').hidden = !s.official_app;
+  $('#nowLabel').textContent = s.showing.label; $('#dashLabel').textContent = s.showing.label;
+  const src = $('#dashSource'); const kind = s.showing.kind === 'released' ? 'keyboard' : s.showing.kind;
+  src.textContent = kind; src.className = 'badge ' + s.showing.kind;
+  $('#pinSwitch').checked = s.pinned;
+  $('#heldBanner').hidden = s.manual_for == null;
+  if (s.manual_for != null) $('#heldText').textContent = `Showing your pick for ${Math.max(0, s.manual_for)} more seconds, then the live status comes back.`;
+  const m = s.showing.matrix || '';
+  if (m !== lastMatrix) { lastMatrix = m; drawMatrix($('#bigScreen'), m || null); drawMatrix($('#miniScreen'), m || null); }
+  const kj = JSON.stringify(s.showing.keys);
+  if (kj !== lastKeys) { lastKeys = kj; drawKeys($('#kbd'), s.showing.keys); }
+  $('#kbdCaption').textContent = s.showing.keys ? '' : 'The keys show the keyboard\'s own lighting right now.';
+  const n = s.sessions.length;
+  $('#sessionSummary').textContent = n ? `${n} Claude session${n > 1 ? 's' : ''} open.` : 'No Claude sessions right now. The keyboard shows its own lighting.';
+  setList($('#sessionList'), JSON.stringify(s.sessions.map((x) => [x.id, x.state, x.tool, Math.round(x.for / 10)])), () =>
+    n ? s.sessions.map((x) => el('div', { class: 'setting' },
+      el('div', { class: 'what' }, el('b', {}, x.project || 'session'), el('small', {}, STATE_TEXT[x.state] + (x.tool ? ' · ' + x.tool : '') + ' · ' + dur(x.for) + (x.agents ? ` · ${x.agents} sub-agent${x.agents > 1 ? 's' : ''}` : ''))),
+      el('span', { class: 'badge hook' }, STATE_TEXT[x.state]))) : [el('div', { class: 'empty' }, 'Sessions appear here when Claude Code runs with the hooks installed.')]);
+  const log = $('#log'); log.replaceChildren();
+  if (!s.log.length) log.append(el('li', { class: 'empty' }, 'Nothing yet.'));
+  for (const e of s.log) {
+    log.append(el('li', {}, el('time', {}, new Date(e.t * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })),
+      el('span', { class: 'badge ' + e.source }, e.source),
+      el('span', { class: e.ok ? '' : 'bad' }, e.action + (e.detail ? ' · ' + e.detail : ''))));
+  }
+  renderPc(s.pc);
+  renderAlbums(s);
+  renderSmart(s);
+  renderScreen(s);
+  renderCity(s);
+  renderPush(s);
+  renderPrivacy(s);
+  renderAlerts(s);
+  renderTyping(s);
+  renderModes(s);
+}
+const PRAYER_NAMES = { fajr: 'Fajr', dhuhr: 'Dhuhr', asr: 'Asr', maghrib: 'Maghrib', isha: 'Isha' };
+function tempText(celsius, bare) {
+  const f = SETTINGS.apps.weather.fahrenheit, v = Math.round(f ? celsius * 9 / 5 + 32 : celsius);
+  return bare ? v + '°' : v + '°' + (f ? 'F' : 'C');
+}
+function renderModes(s) {
+  const box = $('#modeList');
+  if (!box || !s.modes) return;
+  for (const [name, m] of Object.entries(s.modes)) {
+    let row = box.querySelector(`[data-mode="${name}"]`);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'setting';
+      row.dataset.mode = name;
+      row.innerHTML = '<div class="what"><b></b><small></small></div><label class="switch"><input type="checkbox" role="switch"><span></span></label>';
+      row.querySelector('b').textContent = m.label;
+      row.querySelector('small').textContent = m.desc;
+      row.querySelector('input').setAttribute('aria-label', m.label);
+      row.querySelector('input').onchange = async (e) => {
+        await cmd({ cmd: 'mode', name, on: e.target.checked });
+        try { SETTINGS = await api('/api/settings'); renderSettings(); } catch (err) { /* the next refresh will show it */ }
+      };
+      box.appendChild(row);
+    }
+    row.querySelector('input').checked = m.on;
+  }
+}
+function renderTyping(s) {
+  if (!s.typing) return;
+  const t = s.typing;
+  $('#typingNow').textContent = !t.enabled ? 'Not counting.'
+    : `Counting. Now ${Math.round(t.wpm)} words per minute, best this session ${Math.round(t.best)}, ${t.total} key presses counted.`;
+  $('#typingReset').disabled = !t.enabled;
+}
+function renderAlerts(s) {
+  if (!s.alerts) return;
+  const a = s.alerts, on = SETTINGS.alerts.taskbar.enabled;
+  $('#alertTest').disabled = !on;
+  $('#alertStatus').textContent = !on ? 'Taskbar alerts are switched off.'
+    : a.error ? 'Cannot listen for taskbar flashes: ' + a.error + '.'
+    : a.running ? (a.showing ? 'Showing an alert for ' + a.showing + '.' : 'Listening for taskbar flashes.') : 'Starting to listen.';
+  const sig = JSON.stringify(a.seen.map((e) => [e.exe, Math.round(e.ago / 5)]));
+  setList($('#alertSeen'), sig, () => a.seen.length ? [el('p', { class: 'muted small', style: 'margin:0' }, 'Programs seen flashing:'),
+    ...a.seen.map((e) => el('div', { class: 'setting' },
+      el('div', { class: 'what' }, el('b', {}, e.name), el('small', {}, `${e.exe}, last ${dur(e.ago)} ago, ${e.count} time${e.count === 1 ? '' : 's'}`)),
+      el('button', { class: 'btn', onclick: () => ignoreProgram(e.exe) }, 'Ignore')))] : []);
+}
+function ignoreProgram(exe) {
+  const current = SETTINGS.alerts.taskbar.ignore.split(/[,;\s]+/).filter(Boolean);
+  if (!current.map((x) => x.toLowerCase()).includes(exe)) current.push(exe);
+  saveSettings({ alerts: { taskbar: { ignore: current.join(', ') } } });
+}
+function renderPrivacy(s) {
+  if (!s.privacy) return;
+  const ind = SETTINGS.keys.indicators;
+  const say = (label, names, on) => on ? (names.length ? `${label} in use by ${names.join(', ')}.` : `${label}: not in use.`) : `${label}: not watched.`;
+  $('#privacyNow').textContent = say('Microphone', s.privacy.mic, ind.mic_use) + ' ' + say('Camera', s.privacy.cam, ind.cam_use);
+}
+function renderPush(s) {
+  if (!s.push) return;
+  const c = s.push.command;
+  $('#pushExample').textContent = `${c} text "BUILD OK" --colour green --seconds 10\n${c} colour red\n${c} bar 40\n${c} clear\n`
+    + 'Other languages: POST {"source": "push", "req": {"cmd": "text", "text": "BUILD OK"}} to http://127.0.0.1:47841/api/cmd with the header X-Leo: 1.';
+}
+function renderCity(s) {
+  if (!s.city) return;
+  const w = s.city.weather, p = s.city.prayer;
+  $('#weatherNow').textContent = !SETTINGS.apps.weather.enabled ? 'Weather is switched off.'
+    : w && w.temp != null ? `Now ${tempText(w.temp)}, today ${tempText(w.high, true)} to ${tempText(w.low, true)}, updated ${Math.max(0, Math.round(w.age / 60))} min ago.`
+    : w && w.error ? 'No weather yet: ' + w.error + '. It tries again in a few minutes.'
+    : 'No weather yet. It is fetched while the Weather app is on the matrix or in the rotation.';
+  $('#prayerToday').textContent = !p ? 'Prayer times are switched off.'
+    : 'Today: ' + Object.keys(PRAYER_NAMES).map((k) => `${PRAYER_NAMES[k]} ${p.times[k] || '--:--'}`).join(' · ')
+      + (p.next && p.next_time ? `. Next: ${PRAYER_NAMES[p.next]} at ${p.next_time}.` : '.');
+}
+function renderScreen(s) {
+  if (!s.screen) return;
+  $('#screenStatus').textContent = s.screen.error ? 'Cannot read the screen right now: ' + s.screen.error + '.'
+    : s.screen.on ? 'Following the screen now.' : 'Not reading the screen: Screen colours is not the picked key light.';
+}
+function renderSmart(s) {
+  if (!s.smart) return;
+  const m = s.smart;
+  const now = m.app || m.exe || 'no program found';
+  $('#smartNow').textContent = 'Now: ' + now + (m.mods.length ? ' · holding ' + m.mods.join(' + ') : '')
+    + (m.exe && !m.app ? '. This program has no map of its own, so the generic Windows shortcuts are used.' : '.');
+  $('#smartApps').textContent = 'Programs with their own map: ' + m.apps.map((a) => a.name).join(', ') + '. Add your own in ' + (m.file || 'shortcuts.json') + '.';
+  $('#smartProblems').textContent = m.problems.join(' ');
+}
+function albumLine(a, what) {
+  if (a.error) return a.error[0].toUpperCase() + a.error.slice(1) + '.';
+  if (a.images == null) return 'Choose a folder of GIF, PNG, JPEG or BMP files.';
+  if (!a.images) return 'No pictures in that folder yet.';
+  return `${a.images} picture${a.images > 1 ? 's' : ''} found${what || ''}.`;
+}
+function renderAlbums(s) {
+  if (!s.albums || !s.albums.matrix) return;
+  $('#albumMatrixStatus').textContent = albumLine(s.albums.matrix);
+}
+const PC_LABELS = { cpu: 'CPU', ram: 'Memory', gpu: 'GPU', disk: 'Disk', net: 'Network', ping: 'Ping' };
+function speed(bytes) {
+  const bits = SETTINGS.apps.monitor.net_bits; let v = bytes * (bits ? 8 : 1);
+  const units = bits ? ['bit/s', 'Kbit/s', 'Mbit/s', 'Gbit/s'] : ['B/s', 'KB/s', 'MB/s', 'GB/s']; let i = 0;
+  while (v >= 1000 && i < 3) { v /= 1000; i++; }
+  return (v < 10 && i ? v.toFixed(1) : Math.round(v)) + ' ' + units[i];
+}
+function pcText(m, v) {
+  if (v == null) return m === 'ping' ? 'Lost or not answered yet' : 'Not read yet';
+  if (m === 'net') return '↓ ' + speed(v[0]) + ' · ↑ ' + speed(v[1]);
+  if (m === 'ping') return Math.round(v) + ' ms';
+  return Math.round(v) + '%';
+}
+function renderPc(pc) {
+  if (!pc || !SETTINGS) return;
+  const rows = pc.active.map((m) => [m, pcText(m, pc.values[m])]);
+  setList($('#pcReadings'), JSON.stringify(rows), () => rows.length
+    ? rows.map(([m, t]) => el('div', { class: 'setting' }, el('div', { class: 'what' }, el('b', {}, PC_LABELS[m] || m)), el('span', {}, t)))
+    : [el('div', { class: 'empty' }, 'Readings show here while a monitor app is on the matrix or in the rotation.')]);
+}
+
+/* ---- faces and keys ---- */
+function faceCard(name, onClick, sub) {
+  const c = el('canvas', { class: 'led' }); sizeCanvas(c, 126, 10); new Player(c).play(META.moods[name].frames);
+  return el('button', { class: 'face', onclick: onClick, title: META.moods[name].desc }, c, el('b', {}, name), sub ? el('small', {}, sub) : '');
+}
+function build() {
+  const names = Object.keys(META.moods);
+  $('#faceGallery').replaceChildren(...names.map((n) => faceCard(n, () => cmd({ cmd: 'face', mood: n }), META.moods[n].desc.split(':')[0])));
+  $('#moodToggles').replaceChildren(...names.map((n) => {
+    const c = el('canvas', { class: 'led' }); sizeCanvas(c, 126, 10); new Player(c).play(META.moods[n].frames);
+    return el('label', { class: 'face' }, c, el('b', {}, n),
+      el('span', { class: 'switch' }, el('input', { type: 'checkbox', role: 'switch', 'data-mood': n, 'aria-label': 'Allow the ' + n + ' face' }), el('span')));
+  }));
+  $('#toolList').replaceChildren(...Object.entries(META.tools).map(([t, d]) => el('div', { class: 'setting' },
+    el('div', { class: 'what' }, el('b', { class: 'mono' }, t), el('small', {}, d)),
+    el('label', { class: 'switch' }, el('input', { type: 'checkbox', role: 'switch', 'data-tool': t, 'aria-label': 'Allow ' + t }), el('span')))));
+  $('#keyMoods').replaceChildren(...Object.entries(META.key_moods).map(([m, d]) => el('div', { class: 'setting' },
+    el('div', { class: 'what' }, el('b', {}, 'When ' + (STATE_TEXT[m] || m)), el('small', {}, d)),
+    el('label', { class: 'switch' }, el('input', { type: 'checkbox', role: 'switch', 'data-keymood': m, 'aria-label': 'Key lights when ' + m }), el('span')))));
+  $('#msgSend').onclick = () => { const t = $('#msgText').value.trim(); if (!t) return toast('Type a message first'); cmd({ cmd: 'text', text: t, colour: $('#msgColor').value }); };
+  $('#msgText').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#msgSend').click(); });
+  $('#keySend').onclick = () => cmd({ cmd: 'keys', colour: $('#keyColor').value });
+  $('#keyOff').onclick = () => cmd({ cmd: 'keys', off: true });
+  $('#resumeBtn').onclick = () => cmd({ cmd: 'resume' });
+  $('#reconnectBtn').onclick = async () => { await api('/api/reconnect', {}); toast('Reconnecting'); };
+  const shortcut = async (where) => { const r = await api('/api/shortcut', { where }); toast(r.ok ? 'Added: ' + r.path : 'Could not add it: ' + r.error); };
+  $('#shortcutDesk').onclick = () => shortcut('desktop'); $('#shortcutStart').onclick = () => shortcut('startmenu');
+  let armed = false;
+  $('#quitBtn').onclick = async (e) => {
+    if (!armed) { armed = true; e.target.textContent = 'Click again to stop'; setTimeout(() => { armed = false; e.target.textContent = 'Stop service'; }, 3000); return; }
+    await api('/api/quit', {}); toast('Service stopped. Close this tab.');
+  };
+  $('#themeBtn').onclick = () => {
+    const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.dataset.theme = dark ? 'light' : 'dark';
+    try { localStorage.setItem('leo-theme', document.documentElement.dataset.theme); } catch (e) {}
+    lastMatrix = lastKeys = null; build(); renderSettings(); if (STATE) renderState(STATE);
+  };
+}
+/* ---- apps ---- */
+const APP_CHOICES = () => [['off', 'Off', "The keyboard's own effects", null],
+  ...Object.entries(META.apps).map(([k, v]) => [k, v.label, v.desc, META.app_samples[k]]),
+  ['rotation', 'Rotation', 'The apps below, in turn', null]];
+function buildApps() {
+  $('#matrixApps').replaceChildren(...APP_CHOICES().map(([k, label, desc, sample]) => {
+    const c = el('canvas', { class: 'led' }); sizeCanvas(c, 126, 10); drawMatrix(c, sample);
+    return el('button', { class: 'face', 'data-app': k, 'aria-pressed': 'false', onclick: () => saveSettings({ apps: { matrix: k } }) },
+      c, el('b', {}, label), el('small', {}, desc));
+  }));
+  $('#keyBases').replaceChildren(...Object.entries(META.key_bases).map(([k, v]) =>
+    el('button', { class: 'chip', 'data-base': k, 'aria-pressed': 'false', title: v.desc, onclick: () => saveSettings({ keys: { base: k } }) }, v.label)));
+  $('#rotationAdd').onclick = () => saveSettings({ apps: { rotation: [...SETTINGS.apps.rotation, { app: 'clock', seconds: 10 }] } });
+  for (const id of ['#micKey', '#micUseKey', '#camKey']) $(id).replaceChildren(...META.keys.map((k) => el('option', { value: k.name }, k.name)));
+  $('#citySelect').replaceChildren(...Object.keys(META.cities).map((n) => el('option', { value: n }, n)), el('option', { value: 'Custom' }, 'Custom: type the coordinates'));
+  $('#citySelect').onchange = (e) => {
+    const c = META.cities[e.target.value];
+    if (c) saveSettings({ apps: { city: { name: e.target.value, lat: c.lat, lon: c.lon } } });
+  };
+  const saveCoords = () => {
+    const rawLat = $('#cityLat').value.trim(), rawLon = $('#cityLon').value.trim();
+    const lat = rawLat === '' ? NaN : Number(rawLat), lon = rawLon === '' ? NaN : Number(rawLon);   // an empty box is not 0
+    if (Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) saveSettings({ apps: { city: { name: 'Custom', lat, lon } } });
+    else toast('Latitude is -90 to 90 and longitude -180 to 180');
+  };
+  $('#cityLat').onchange = saveCoords; $('#cityLon').onchange = saveCoords;
+  $('#prayerMethod').replaceChildren(...Object.entries(META.prayer_methods).map(([k, v]) => el('option', { value: k }, v)));
+  $('#prayerShow').replaceChildren(...Object.entries(PRAYER_NAMES).map(([k, n]) => el('div', { class: 'setting' },
+    el('div', { class: 'what' }, el('b', {}, n + ' counts as the next prayer')),
+    el('label', { class: 'switch' }, el('input', { type: 'checkbox', role: 'switch', 'data-set': 'apps.prayer.show.' + k, 'aria-label': n + ' counts as the next prayer' }), el('span')))));
+  $('#prayerOffsets').replaceChildren(...Object.entries(PRAYER_NAMES).map(([k, n]) =>
+    el('label', { class: 'field' }, n, el('input', { type: 'number', min: -30, max: 30, step: 1, 'data-set': 'apps.prayer.offsets.' + k }))));
+  $('#smartLegend').replaceChildren(...Object.values(META.smart_categories).map((c) =>
+    el('span', { class: 'small' }, el('span', { class: 'sw', style: 'background:' + c.colour }), c.label)));
+  $('#typingReset').onclick = () => cmd({ cmd: 'typingreset' }).then((r) => r && r.ok && toast('Counts cleared'));
+  $('#alertTest').onclick = () => cmd({ cmd: 'alerttest' }).then((r) => r && r.ok && toast('Showing a test alert'));
+  $('#smartExample').onclick = async () => {
+    try {
+      const r = await api('/api/smart-example', {});
+      toast(r.created ? 'Created ' + r.path : 'That file already exists: ' + r.path);
+    } catch (e) { toast('Cannot reach the service'); }
+  };
+  $$('[data-pick]').forEach((b) => (b.onclick = async () => {
+    try {
+      const r = await api('/api/pick-folder', {});
+      if (r.ok && r.path) saveSettings({ albums: { [b.dataset.pick]: { folder: r.path } } });
+      else if (!r.ok) toast(r.error || 'Could not open the folder chooser');
+    } catch (e) { toast('Cannot reach the service'); }
+  }));
+}
+function renderApps() {
+  const a = SETTINGS.apps;
+  const named = META.cities[a.city.name] ? a.city.name : 'Custom';
+  if (document.activeElement !== $('#citySelect')) $('#citySelect').value = named;
+  for (const [id, v] of [['#cityLat', a.city.lat], ['#cityLon', a.city.lon]]) if (document.activeElement !== $(id)) $(id).value = v;
+  $$('[data-app]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.app === a.matrix)));
+  $$('[data-base]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.base === SETTINGS.keys.base)));
+  $('#rotationCard').hidden = a.matrix !== 'rotation';
+  const rot = a.rotation;
+  const save = (list) => saveSettings({ apps: { rotation: list } });
+  setList($('#rotationList'), JSON.stringify(rot), () => rot.length ? rot.map((it, i) => el('div', { class: 'row', style: 'padding:6px 0' },
+    el('label', { class: 'field' }, 'App', el('select', { onchange: (e) => save(rot.map((x, j) => (j === i ? { ...x, app: e.target.value } : x))) },
+      ...Object.entries(META.apps).map(([k, v]) => el('option', { value: k, selected: k === it.app }, v.label)))),
+    el('label', { class: 'field' }, 'Seconds', el('input', { type: 'number', min: 2, max: 3600, value: it.seconds,
+      onchange: (e) => { const v = Number(e.target.value); if (v > 0) save(rot.map((x, j) => (j === i ? { ...x, seconds: v } : x))); } })),
+    el('button', { class: 'btn', style: 'align-self:flex-end', onclick: () => save(rot.filter((_, j) => j !== i)) }, 'Take out')))
+    : [el('div', { class: 'empty' }, 'Nothing in the rotation yet.')]);
+}
+
+function fitAll() {
+  const big = $('#bigScreen'); if (!big.offsetParent) return;
+  fitMatrix(big, 760); const k = $('#kbd'); const w = Math.min(760, k.parentElement.clientWidth); sizeCanvas(k, w, Math.round(w * 0.3));
+  lastMatrix = lastKeys = null; if (STATE) renderState(STATE);
+}
+addEventListener('resize', fitAll);
+
+/* ---- boot ---- */
+async function boot() {
+  try { const t = localStorage.getItem('leo-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  sizeCanvas($('#miniScreen'), 126, 10);
+  try { META = await api('/api/meta'); SETTINGS = await api('/api/settings'); } catch (e) { $('#nowLabel').textContent = 'Cannot reach the service'; return; }
+  build(); buildApps(); renderSettings();
+  showTab(location.hash.slice(1) || 'dash');
+  await refresh();
+  setInterval(refresh, 500);
+}
+boot();
+</script>
+</body>
+</html>

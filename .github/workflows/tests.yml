@@ -1,0 +1,22 @@
+name: tests
+
+# leo-sys only runs on Windows (it talks to the keyboard over Windows HID and decodes pictures with Windows' own
+# imaging component), so the tests run there, on the oldest and the newest Python it supports.
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.13"]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run the tests
+        run: python -m unittest discover -s tests -v

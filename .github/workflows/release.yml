@@ -1,0 +1,46 @@
+name: release installer
+
+# When a release is published, build leo-sys-setup.exe on a clean Windows machine and attach it, with a checksum.
+# Running it by hand (Actions, Run workflow) builds the same files and keeps them as a build artifact only,
+# which is how to try it without publishing anything.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Run the tests
+        run: python -m unittest discover -s tests
+      - name: Build the installer
+        run: python leo.py build-installer --out dist
+      - name: Write its checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist/leo-sys-setup.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  leo-sys-setup.exe" | Out-File -Encoding ascii dist/leo-sys-setup.exe.sha256
+          Get-Content dist/leo-sys-setup.exe.sha256
+      - name: Keep both as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: leo-sys-setup
+          path: |
+            dist/leo-sys-setup.exe
+            dist/leo-sys-setup.exe.sha256
+      - name: Attach both to the release
+        if: github.event_name == 'release'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/leo-sys-setup.exe dist/leo-sys-setup.exe.sha256 --clobber
