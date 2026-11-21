@@ -76,6 +76,9 @@ def defaults():
                  # channel (100 = untouched) to correct a tint of the LEDs. Saturation 1 and gain 1 are the most faithful.
                  "screen": {"mode": "edges", "saturation": 1.5, "gain": 1.5, "smooth": 0.5, "fps": 10,
                             "balance": {"r": 100, "g": 100, "b": 100}}},
+        # The Leobog app writes to the same screens. With this on, leo-sys lets go of the keyboard (as if switched off) while
+        # that app is open, and takes it back by itself a few seconds after it closes. (The master switch is separate.)
+        "leobog": {"step_aside": True},
         # Modes (modes.py): a few settings switched together. `previous` remembers what they were, to switch back.
         "modes": {"previous": ""},
         # Alerts: when a program flashes its taskbar button (Discord, WhatsApp, a browser tab...), the keys flash in its

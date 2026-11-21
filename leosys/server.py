@@ -163,7 +163,7 @@ def make_server(engine, host=HOST, port=PORT, on_quit=None):
                 st = engine.state()
                 return self._send(200, {"permissions": engine.settings.snapshot()["claude"], "pinned": st["pinned"],
                                         "connected": st["connected"], "showing": st["showing"]["label"],
-                                        "switched_off": st["off"]})
+                                        "switched_off": st["off"], "stepped_aside": st["stepped_aside"]})
             if path == "/api/settings":
                 if not self._admin():
                     return

@@ -57,6 +57,10 @@ everything from Claude's tools, the hooks and scripts, and **cannot be woken**: 
 the service again, and Claude is told plainly that leo-sys is switched off. If Windows' start-up or the desktop icon starts
 the service anyway, it runs idle, holding only the panel so you can switch back on; it never opens the keyboard.
 
+**Step aside for the Leobog app** (Settings, on by default) does the same by itself: while the Leobog app
+(`DeviceDriver.exe`) is open, leo-sys lets go of the keyboard exactly as if switched off, and takes it back a few seconds
+after you close the app. leo-sys looks once a second, at no cost you would notice. It never touches the master switch.
+
 It is one small file (`off` in the data folder), so it survives restarts, reboots and updates until you switch leo-sys on
 (in the panel, or `leo-sys on`). Uninstalling removes it. Your settings are untouched either way.
 

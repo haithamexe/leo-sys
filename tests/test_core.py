@@ -1377,6 +1377,126 @@ class MasterOffSwitch(unittest.TestCase):
             start.assert_not_called()
 
 
+class StepAsideForTheLeobogApp(unittest.TestCase):
+    """While the Leobog app is open leo-sys holds nothing, and it comes back by itself when that app closes."""
+
+    def make(self, **over):
+        e, clock = engine(**over)
+        app = {"open": True}
+        e.app_probe = lambda: app["open"]
+        return e, clock, app
+
+    def test_it_steps_aside_while_the_app_is_open_and_refuses_everything_that_would_draw(self):
+        e, clock, app = self.make(apps={"matrix": "clock"})
+        self.assertFalse(e.state()["stepped_aside"])
+        e.handle({"cmd": "event", "event": "UserPromptSubmit", "session": "s", "cwd": "C:/x"}, "hook")
+        e.check_app()
+        s = e.state()
+        self.assertEqual((s["stepped_aside"], s["off"], s["connected"], s["official_app"]), (True, False, False, True))
+        self.assertEqual((s["showing"]["label"], s["showing"]["kind"], s["sessions"]), ("Stepped aside for the Leobog app", "aside", []))
+        self.assertEqual(e.compose(clock()), (None, None))
+        for req, source in [({"cmd": "face", "mood": "done"}, "mcp"), ({"cmd": "event", "event": "Stop", "session": "s"}, "hook"),
+                            ({"cmd": "text", "text": "hi"}, "push"), ({"cmd": "face", "mood": "done"}, "gui")]:
+            r = e.handle(req, source)
+            self.assertEqual((r["ok"], r["denied"]), (False, power.ASIDE_MESSAGE), (req, source))
+        self.assertEqual(e.sessions, {})
+        self.assertTrue(e.handle({"cmd": "pin", "value": True}, "gui")["ok"])            # settings still work
+
+    def test_it_comes_back_a_few_seconds_after_the_app_closes(self):
+        e, clock, app = self.make(apps={"matrix": "clock"})
+        e.check_app()
+        app["open"] = False
+        clock.t += 1
+        e.check_app()
+        self.assertTrue(e.state()["stepped_aside"])                                       # not yet: the app only just went
+        clock.t += 3
+        self.assertFalse(e.state()["stepped_aside"])
+        self.assertTrue(e.handle({"cmd": "face", "mood": "done"}, "mcp")["ok"])
+        self.assertIsNotNone(e.compose(clock())[0])
+        self.assertFalse(e.state()["official_app"])
+
+    def test_the_switch_in_settings_turns_it_off_and_the_panel_still_warns(self):
+        e, clock, app = self.make(leobog={"step_aside": False})
+        e.check_app()
+        s = e.state()
+        self.assertEqual((s["stepped_aside"], s["official_app"]), (False, True))
+        self.assertTrue(e.handle({"cmd": "face", "mood": "done"}, "mcp")["ok"])
+        e.settings.patch({"leobog": {"step_aside": True}})                                 # switching it on acts at once
+        self.assertTrue(e.state()["stepped_aside"])
+        e.settings.patch({"leobog": {"step_aside": False}})
+        self.assertFalse(e.state()["stepped_aside"])
+
+    def test_it_is_on_by_default_and_the_master_switch_wins(self):
+        self.assertTrue(settings.defaults()["leobog"]["step_aside"])
+        e, clock, app = self.make()
+        e.check_app()
+        e.handle({"cmd": "power", "on": False}, "gui")
+        s = e.state()
+        self.assertEqual((s["off"], s["stepped_aside"]), (True, False))
+        self.assertEqual(e.handle({"cmd": "face", "mood": "done"}, "mcp")["denied"], power.MESSAGE)
+        self.assertTrue(e.handle({"cmd": "power", "on": True}, "gui")["ok"])               # it can be switched on: the app still holds it off
+        self.assertTrue(e.state()["stepped_aside"])
+
+    def test_without_a_probe_nothing_is_looked_for(self):
+        e, _ = engine()
+        self.assertIsNone(e.app_probe)                                                     # a pretend keyboard never looks
+        e.check_app()
+        self.assertFalse(e.state()["stepped_aside"])
+
+    def test_the_worker_lets_go_of_the_keyboard_for_the_app_and_takes_it_back(self):
+        import threading
+        links, app = [], {"open": False}
+
+        class Link(DemoKeyboard):
+            def __init__(self):
+                super().__init__()
+                self.closed = False
+                links.append(self)
+
+            def close(self):
+                self.closed = True
+
+        def wait_for(cond, what, seconds=12):
+            end = time.time() + seconds
+            while time.time() < end and not cond():
+                time.sleep(0.05)
+            self.assertTrue(cond(), what)
+
+        s = settings.Settings(Path(tempfile.mkdtemp()) / "s.json")
+        s.patch({"apps": {"matrix": "clock"}})
+        e = Engine(settings=s, keyboard=Link, clock=time.time, threads=False, probe=lambda: (frozenset(), ""),
+                   shortcuts=smartkeys.Library(Path(tempfile.mkdtemp()) / "shortcuts.json"), app_probe=lambda: app["open"])
+        threading.Thread(target=e._worker, daemon=True).start()
+        try:
+            wait_for(lambda: e.connected and links and links[0].frames, "connected and drawing")
+            app["open"] = True
+            wait_for(lambda: links[0].closed, "the link is closed once the Leobog app opens")
+            self.assertTrue(e.state()["stepped_aside"])
+            frames = links[0].frames
+            time.sleep(0.5)
+            self.assertEqual((links[0].frames, len(links)), (frames, 1))                  # nothing sent, nothing reopened
+            app["open"] = False
+            wait_for(lambda: len(links) == 2 and e.connected, "back by itself after the app closes")
+            self.assertFalse(e.state()["stepped_aside"])
+        finally:
+            e.quit.set()
+
+    def test_the_mcp_server_explains_it(self):
+        reply = {"ok": False, "denied": power.ASIDE_MESSAGE, "connected": False}
+        with mock.patch.object(mcp_server, "send", return_value=reply):
+            self.assertEqual(mcp_server.call_tool("show_text", {"text": "hi"}), mcp_server.ASIDE_TEXT)
+        with mock.patch.object(mcp_server, "get", return_value={"stepped_aside": True, "switched_off": False, "permissions": {}}):
+            self.assertIn('"stepped_aside": true', mcp_server.call_tool("leo_status", {}))
+
+    @unittest.skipUnless(os.name == "nt", "Windows only")
+    def test_the_process_list_lookup_finds_a_running_program_and_not_a_missing_one(self):
+        from leosys import device
+        self.assertTrue(device._process_listed(os.path.basename(sys.executable)))          # this very test run
+        self.assertTrue(device._process_listed(os.path.basename(sys.executable).upper()))  # file names are not case sensitive
+        self.assertFalse(device._process_listed("no-such-program-9f3a.exe"))
+        self.assertIn(device.official_app_running(), (True, False))
+
+
 class TaskbarAlerts(unittest.TestCase):
     CFG = {"enabled": True, "seconds": 6, "cooldown_s": 60, "ignore": "", "only": ""}
 

@@ -6,6 +6,9 @@
   completely, so the Leobog app can use it without both fighting over the screens. While off it stops every watcher, refuses
   Claude's tools, the hooks and scripts, and cannot be woken: the hooks and the MCP server no longer start the service. It
   is a file in the data folder, so it stays off across restarts and updates until switched on. Uninstall removes it.
+- **Step aside for the Leobog app** (Settings, on by default): while the Leobog app is open, leo-sys lets go of the keyboard
+  as if switched off, and takes it back by itself a few seconds after that app closes. The app is found with one look at
+  Windows' process list per second instead of running `tasklist`.
 - Tests no longer depend on whether Caps Lock is on.
 
 ## 0.3.0 (2026-11-19)

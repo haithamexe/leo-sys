@@ -24,14 +24,19 @@ URGENCY = ["attention", "working", "thinking", "done", "idle"]   # most urgent f
 VOLUME_POPUP = 2.0    # seconds the volume shows on the number row after it changes
 NUMBER_ROW = ["!1", "@2", "#3", "$4", "%5", "^6", "&7", "*8", "(9", ")0"]
 OFF_OK = {"power", "status", "pin", "mode", "typingreset"}   # while switched off: only the switch itself and plain settings
+APP_POLL = 1.0        # seconds between looks for the Leobog app
+APP_GRACE = 3.0       # leo-sys comes back this long after the Leobog app was last seen
 
 
 class Engine:
     def __init__(self, settings=None, keyboard=device.Keyboard, clock=time.time, threads=True,
                  monitor=None, media_watch=None, probe=None, shortcuts=None, screen_watch=None, weather_watch=None, privacy_watch=None, flash_watch=None, typing_meter=None,
-                 switch=None):
+                 switch=None, app_probe=None):
         self.settings = settings or Settings()
         self.switch = switch or power.Switch(self.settings.path.parent / "off")    # the master off switch, beside the settings
+        # Is the Leobog app open? Only the real keyboard looks; the tests hand in their own probe.
+        self.app_probe = app_probe or (device.official_app_running if keyboard is device.Keyboard else None)
+        self.app_seen = -1e9                                                       # when it was last seen open
         real = threads and os.name == "nt"
         self.monitor = monitor or (pcstats.Monitor(clock=clock) if real else pcstats.FakeMonitor(clock=clock))
         self.media = media_watch or (media.MediaWatch(clock=clock) if real else media.FakeMediaWatch(clock=clock))
@@ -77,11 +82,16 @@ class Engine:
     def handle(self, req, source="mcp"):
         if not isinstance(req, dict) or "cmd" not in req:
             return {"ok": False, "error": "bad request"}
-        if self.switch.is_off() and req.get("cmd") not in OFF_OK:
-            # Switched off: nothing from Claude's tools, the hooks or scripts, and nothing that would draw. Not logged: the
-            # hooks fire all the time, and a long list of refusals would bury everything else.
-            return {"ok": False, "denied": power.MESSAGE if source not in policy.PRIVILEGED
-                    else "leo-sys is switched off: switch it on first", "connected": False}
+        away = self._away()
+        if away and req.get("cmd") not in OFF_OK:
+            # Switched off, or stepped aside for the Leobog app: nothing from Claude's tools, the hooks or scripts, and
+            # nothing that would draw. Not logged: the hooks fire all the time, and a long list of refusals would bury
+            # everything else.
+            if away == "app":
+                msg = power.ASIDE_MESSAGE
+            else:
+                msg = power.MESSAGE if source not in policy.PRIVILEGED else "leo-sys is switched off: switch it on first"
+            return {"ok": False, "denied": msg, "connected": False}
         if source == "push":                # a script on this PC: its own switch, not Claude's permissions
             with self.lock:
                 return self._handle_push(req)
@@ -344,8 +354,9 @@ class Engine:
     # ---- what to show right now ---------------------------------------------------------------
     def compose(self, now):
         """Decide the matrix frame and key colours for this moment. None means hand that part back."""
-        if self.switch.is_off():
-            self._rest()
+        away = self._away()
+        if away:
+            self._rest(away)
             return None, None
         with self.lock:
             snap = self.settings.snapshot()
@@ -459,14 +470,37 @@ class Engine:
             self.shown = {"matrix": matrix, "keys": keys, "label": shown_label, "kind": kind}
             return matrix, keys
 
-    def _rest(self):
-        """Switched off: forget everything live and stop everything that listens. The worker closes the keyboard link."""
+    def _away(self):
+        """None while leo-sys is running. "off": the master switch. "app": stepped aside, because the Leobog app is open
+        (if that is allowed in the settings) and was seen a moment ago."""
+        if self.switch.is_off():
+            return "off"
+        if self.clock() - self.app_seen < APP_GRACE and self.settings.snapshot()["leobog"]["step_aside"]:
+            return "app"
+        return None
+
+    def check_app(self):
+        """One look for the Leobog app (the worker does this every second)."""
+        if self.app_probe is None:
+            return
+        running = bool(self.app_probe())
+        with self.lock:
+            self.official_app = running
+            if running:
+                self.app_seen = self.clock()
+        if running and self._away() == "app":
+            self._rest("app")                  # at once, not on the worker's next turn
+
+    def _rest(self, why="off"):
+        """Switched off or stepped aside: forget everything live and stop everything that listens. The worker closes the
+        keyboard link."""
         with self.lock:
             self.manual = self.manual_keys = self.flash = self.alert = None
             self.sessions.clear()
             self.mood, self.mood_since = None, self.clock()
             self.connected, self.last_error = False, ""
-            self.shown = {"matrix": None, "keys": None, "label": "Switched off", "kind": "off"}
+            self.shown = {"matrix": None, "keys": None, "kind": why if why == "off" else "aside",
+                          "label": "Switched off" if why == "off" else "Stepped aside for the Leobog app"}
             self.screen_seen = {"on": False, "error": ""}
         self.typing.set_enabled(False)               # stops counting (and forgets, as always when it is off)
         if self.flashes.running():
@@ -554,16 +588,17 @@ class Engine:
                 kb.close()
                 kb = None
             self.reconnect_flag = False
-            if self.keyboard_factory is device.Keyboard and t0 - last_app_check > 10:
+            if self.app_probe is not None and t0 - last_app_check >= APP_POLL:
                 last_app_check = t0
-                self.official_app = device.official_app_running()
-            if self.switch.is_off():             # the master switch: let go of the keyboard entirely, so the Leobog app can have it
+                self.check_app()
+            away = self._away()
+            if away:                             # switched off, or the Leobog app is open: let go of the keyboard entirely
                 if kb is not None:
                     kb.close()
                     kb = None
                 last_m = last_k = None
-                self._rest()
-                self.quit.wait(0.5)
+                self._rest(away)
+                self.quit.wait(0.5 if away == "off" else 0.25)
                 continue
             if kb is None:
                 try:
@@ -647,8 +682,9 @@ class Engine:
                     x, now, s["scene"]["done_seconds"]), "tool": x["tool"], "agents": x["agents"],
                     "for": now - x["since"], "idle_for": now - x["last_event"]})
             m = self.shown["matrix"]
+            away = self._away()
             return {
-                "off": self.switch.is_off(),
+                "off": away == "off", "stepped_aside": away == "app",
                 "connected": self.connected, "error": self.last_error, "official_app": self.official_app,
                 "device": getattr(self.keyboard_factory, "name", "keyboard"),
                 "pinned": self.pinned, "brightness": s["brightness"],

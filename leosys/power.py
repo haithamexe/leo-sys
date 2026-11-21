@@ -14,6 +14,7 @@ from pathlib import Path
 from .config import DATA_DIR
 
 MESSAGE = "leo-sys is switched off (the master switch in its panel, or `leo-sys on`)"
+ASIDE_MESSAGE = "leo-sys has stepped aside because the Leobog app is open (it comes back by itself when that closes)"
 
 
 class Switch:

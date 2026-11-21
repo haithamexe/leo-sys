@@ -100,6 +100,10 @@ OFF_TEXT = ("denied by the user: leo-sys is switched off (the master switch). It
             "while off. Do not retry; tell the user if they asked for something on the keyboard.")
 
 
+ASIDE_TEXT = ("denied: leo-sys has stepped aside because the user's Leobog app is open, and it does not touch the keyboard "
+              "meanwhile. It comes back by itself when that app closes. Do not retry.")
+
+
 def call_tool(name, a):
     try:
         return _call_tool(name, a)
@@ -112,6 +116,9 @@ def _call_tool(name, a):
         info = get("/api/claude")
         if info.get("switched_off"):
             return json.dumps({"switched_off": True, "note": "the user switched leo-sys off; nothing can be shown"})
+        if info.get("stepped_aside"):
+            return json.dumps({"stepped_aside": True, "note": "the user's Leobog app is open, so leo-sys is not touching "
+                                                              "the keyboard; it returns when that app closes"})
         p = info["permissions"]
         allowed = [t for t, on in p["tools"].items() if on] if p["enabled"] else []
         return json.dumps({"connected": info["connected"], "showing": info["showing"], "pinned_by_user": info["pinned"],
@@ -122,6 +129,8 @@ def _call_tool(name, a):
     r = send(build_request(name, a), "mcp")
     if r.get("denied") == power.MESSAGE:
         return OFF_TEXT
+    if r.get("denied") == power.ASIDE_MESSAGE:
+        return ASIDE_TEXT
     if r.get("denied"):
         return f"denied by the user's settings: {r['denied']}. Do not retry; call leo_status to see what is allowed."
     if name == "now_playing" and r.get("ok"):

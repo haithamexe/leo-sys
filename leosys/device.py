@@ -55,12 +55,51 @@ class DemoKeyboard:
         pass
 
 
+OFFICIAL_EXE = "DeviceDriver.exe"
+
+
+def _process_listed(name):
+    """Is a program with this file name running? One look at Windows' process list (about a millisecond, no new process)."""
+    import ctypes
+    from ctypes import wintypes
+
+    class Entry(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                    ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", wintypes.LONG), ("dwFlags", wintypes.DWORD),
+                    ("szExeFile", ctypes.c_wchar * 260)]
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    k32.Process32FirstW.argtypes = k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(Entry)]
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    snap = k32.CreateToolhelp32Snapshot(0x2, 0)                      # TH32CS_SNAPPROCESS
+    if snap in (None, wintypes.HANDLE(-1).value):
+        raise OSError("could not list the running programs")
+    try:
+        entry = Entry()
+        entry.dwSize = ctypes.sizeof(Entry)
+        more = k32.Process32FirstW(snap, ctypes.byref(entry))
+        while more:
+            if entry.szExeFile.lower() == name.lower():
+                return True
+            more = k32.Process32NextW(snap, ctypes.byref(entry))
+        return False
+    finally:
+        k32.CloseHandle(snap)
+
+
 def official_app_running():
-    """Is the Leobog driver app open? It writes to the same channels, so the panel warns about it."""
+    """Is the Leobog driver app open? It writes to the same channels, so leo-sys steps aside for it (or the panel warns)."""
     import os
     import subprocess
     if os.name != "nt":
         return False
+    try:
+        return _process_listed(OFFICIAL_EXE)
+    except (OSError, AttributeError, ValueError):
+        pass                                                          # fall back to asking tasklist, which is slower
     try:
         out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq DeviceDriver.exe", "/NH"], capture_output=True,
                              text=True, timeout=5, creationflags=0x08000000).stdout

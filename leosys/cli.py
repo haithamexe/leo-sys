@@ -246,7 +246,7 @@ def _main(argv):
         from .client import get
         s = get("/api/state")
         print(json.dumps({"switched_off": s.get("off", False), "connected": s["connected"], "error": s["error"], "pinned": s["pinned"],
-                          "leobog_app_open": s["official_app"], "showing": s["showing"]["label"],
+                          "stepped_aside": s.get("stepped_aside", False), "leobog_app_open": s["official_app"], "showing": s["showing"]["label"],
                           "sessions": len(s["sessions"])}, indent=2))
     else:
         print(USAGE.format(version=__version__))
