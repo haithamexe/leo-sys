@@ -11,7 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import launch
+from . import launch, power
 from .config import DATA_DIR
 
 HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Notification",
@@ -184,12 +184,14 @@ def setup(app=True, hooks=True, mcp=True, autostart=True, shortcut=True, say=pri
             appinstall.install(say)
         except (RuntimeError, OSError) as e:
             say(f"  app: could not install ({e}); continuing with the scripts in place")
-    if not client.ensure_daemon():
+    if not client.ensure_daemon(force=True):
         say("  ! could not start the background service; see daemon.log in the leo-sys data folder")
         return 1
     token = client.admin_token()
     state = client._request("GET", "/api/state")
-    if state.get("connected"):
+    if state.get("off"):
+        say("  leo-sys is switched OFF (your choice, kept across updates): it holds nothing. Switch it on in the panel.")
+    elif state.get("connected"):
         say("  keyboard: connected")
     else:
         say(f"  keyboard: not connected yet ({state.get('error') or 'plug it in by cable'})")
@@ -255,6 +257,7 @@ def uninstall(say=print):
     except Exception:
         pass
     say("  start with Windows: off")
+    power.Switch().set_off(False)                      # a later reinstall starts working, not stuck off
     say(f"  background service: {'stopped' if client.stop_daemon() else 'not running'}")
     say(f"Your settings and logs stay in {DATA_DIR}; delete that folder to remove everything.")
     return 0

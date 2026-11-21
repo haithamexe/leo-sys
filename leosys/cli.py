@@ -20,7 +20,9 @@ USAGE = """leo-sys {version}: Claude Code's live status and more on a LEOBOG AMG
   install             only build and install leo-sys.exe
   build-installer     build leo-sys-setup.exe, the file to give to other people (option: --out FOLDER)
   start | stop        run / stop the background service
-  daemon              run the service in the foreground (--demo: with a pretend keyboard)
+  off | on            the master switch: off lets go of the keyboard completely (for the Leobog app) and keeps the
+                      hooks, the MCP server and Windows start-up from using it; on gives it back
+  daemon            run the service in the foreground (--demo: with a pretend keyboard)
   demo                try the panel without the keyboard (a pretend one on port 47843)
   face <mood>         show a face: idle thinking working attention done error sleep splash
   text <message>      show a message on the matrix
@@ -132,6 +134,14 @@ def interactive(ask=None, show=None, open_panel=None):
 
 
 def main(argv):
+    try:
+        return _main(argv)
+    except ConnectionError as e:             # no service and none could be started (it is switched off, or would not start)
+        print(e)
+        return 1
+
+
+def _main(argv):
     if not argv:
         if sys.stdout is None and os.name == "nt" and launch.packed():  # double-clicked: no console to print to
             return interactive()
@@ -191,16 +201,22 @@ def main(argv):
             proc.wait()
         except KeyboardInterrupt:
             proc.terminate()
+    elif cmd in ("off", "on"):
+        from . import power
+        sw = power.Switch()
+        sw.set_off(cmd == "off")             # the service notices the file by itself within a moment
+        print("leo-sys is switched off: it holds nothing, and the hooks and the MCP server will not start it" if cmd == "off"
+              else "leo-sys is switched on")
     elif cmd == "start":
         from .client import ensure_daemon
-        print("running" if ensure_daemon() else "could not start")
+        print("running" if ensure_daemon(force=True) else "could not start")
     elif cmd == "stop":
         from .client import stop_daemon
         print("stopped" if stop_daemon() else "not running")
     elif cmd == "gui":
         from .client import ensure_daemon
         from .config import HOST, PORT
-        if not ensure_daemon():
+        if not ensure_daemon(force=True):          # you asked for the panel, so it starts (idle, if switched off)
             _say("leo-sys could not start its background service. See daemon.log in the leo-sys data folder.", True)
             return 1
         webbrowser.open(f"http://{HOST}:{PORT}/")
@@ -229,7 +245,7 @@ def main(argv):
     elif cmd == "status":
         from .client import get
         s = get("/api/state")
-        print(json.dumps({"connected": s["connected"], "error": s["error"], "pinned": s["pinned"],
+        print(json.dumps({"switched_off": s.get("off", False), "connected": s["connected"], "error": s["error"], "pinned": s["pinned"],
                           "leobog_app_open": s["official_app"], "showing": s["showing"]["label"],
                           "sessions": len(s["sessions"])}, indent=2))
     else:

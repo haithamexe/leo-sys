@@ -144,6 +144,7 @@ canvas.led.wide { max-width: 100%; }
     </div>
   </div>
   <div class="quick">
+    <label class="row" style="gap:8px" title="Off lets go of the keyboard completely, so the Leobog app can use it. Claude's hooks and tools do nothing and cannot wake leo-sys."><span class="switch"><input type="checkbox" role="switch" id="powerSwitch" aria-label="leo-sys on or off"><span></span></span> leo-sys on</label>
     <label class="row" style="gap:8px"><span class="switch"><input type="checkbox" role="switch" id="claudeSwitch"><span></span></span> Claude control</label>
     <label class="row" style="gap:8px"><span class="switch"><input type="checkbox" role="switch" id="pinSwitch"><span></span></span> Pin keyboard</label>
     <button class="btn" id="themeBtn" aria-label="Switch light or dark theme">Theme</button>
@@ -163,7 +164,8 @@ canvas.led.wide { max-width: 100%; }
     <!-- DASHBOARD -->
     <section id="tab-dash">
       <h2>Dashboard</h2>
-      <div class="card banner" id="appBanner" hidden><b>The Leobog app is open.</b> It writes to the same screens and will fight leo-sys for them. Close it from its tray icon.</div>
+      <div class="card banner" id="offBanner" hidden><div class="row between"><span><b>leo-sys is switched off.</b> It has let go of the keyboard completely, so the Leobog app can use it. Claude's hooks and tools do nothing, and nothing here starts it again until you switch it on.</span><button class="btn primary" id="offBannerOn">Switch on</button></div></div>
+      <div class="card banner" id="appBanner" hidden><b>The Leobog app is open.</b> It writes to the same screens and will fight leo-sys for them. Switch leo-sys off with the switch at the top (or close the Leobog app from its tray icon).</div>
       <div class="card banner" id="heldBanner" hidden><div class="row between"><span id="heldText"></span><button class="btn primary" id="resumeBtn">Resume live status</button></div></div>
       <p class="muted" id="sessionSummary"></p>
       <div class="card">
@@ -588,6 +590,8 @@ document.addEventListener('change', (e) => {
 });
 $('#claudeSwitch').addEventListener('change', (e) => saveSettings({ claude: { enabled: e.target.checked } }));
 $('#pinSwitch').addEventListener('change', (e) => cmd({ cmd: 'pin', value: e.target.checked }));
+$('#powerSwitch').addEventListener('change', (e) => cmd({ cmd: 'power', on: e.target.checked }).then((r) => r && r.ok && toast(e.target.checked ? 'leo-sys is on' : 'leo-sys is off: the keyboard is free')));
+$('#offBannerOn').addEventListener('click', () => cmd({ cmd: 'power', on: true }));
 $('#brightness').addEventListener('input', (e) => { $('#brightVal').textContent = e.target.value + '%'; });
 $('#brightness').addEventListener('change', (e) => saveSettings({ brightness: Number(e.target.value) }));
 
@@ -601,11 +605,13 @@ async function refresh() {
   STATE = s; renderState(s);
 }
 function renderState(s) {
-  const conn = s.connected ? 'Connected to the ' + s.device : 'Not connected' + (s.error ? ' · ' + s.error : '');
+  const conn = s.off ? 'Switched off: the keyboard is free' : s.connected ? 'Connected to the ' + s.device : 'Not connected' + (s.error ? ' · ' + s.error : '');
   for (const d of ['#connDot', '#connDot2']) $(d).classList.toggle('on', s.connected);
-  $('#connText').textContent = conn; $('#connText2').textContent = s.connected ? 'Connected to the ' + s.device : 'Not connected';
-  $('#connErr').textContent = s.connected ? '' : s.error;
-  $('#appBanner').hidden = !s.official_app;
+  $('#connText').textContent = conn; $('#connText2').textContent = s.off ? 'Switched off' : s.connected ? 'Connected to the ' + s.device : 'Not connected';
+  $('#connErr').textContent = s.connected || s.off ? '' : s.error;
+  $('#powerSwitch').checked = !s.off;
+  $('#offBanner').hidden = !s.off;
+  $('#appBanner').hidden = !s.official_app || s.off;
   $('#nowLabel').textContent = s.showing.label; $('#dashLabel').textContent = s.showing.label;
   const src = $('#dashSource'); const kind = s.showing.kind === 'released' ? 'keyboard' : s.showing.kind;
   src.textContent = kind; src.className = 'badge ' + s.showing.kind;
@@ -616,9 +622,9 @@ function renderState(s) {
   if (m !== lastMatrix) { lastMatrix = m; drawMatrix($('#bigScreen'), m || null); drawMatrix($('#miniScreen'), m || null); }
   const kj = JSON.stringify(s.showing.keys);
   if (kj !== lastKeys) { lastKeys = kj; drawKeys($('#kbd'), s.showing.keys); }
-  $('#kbdCaption').textContent = s.showing.keys ? '' : 'The keys show the keyboard\'s own lighting right now.';
+  $('#kbdCaption').textContent = s.off ? 'leo-sys is not touching the keyboard.' : s.showing.keys ? '' : 'The keys show the keyboard\'s own lighting right now.';
   const n = s.sessions.length;
-  $('#sessionSummary').textContent = n ? `${n} Claude session${n > 1 ? 's' : ''} open.` : 'No Claude sessions right now. The keyboard shows its own lighting.';
+  $('#sessionSummary').textContent = s.off ? 'Claude sessions are ignored while leo-sys is switched off.' : n ? `${n} Claude session${n > 1 ? 's' : ''} open.` : 'No Claude sessions right now. The keyboard shows its own lighting.';
   setList($('#sessionList'), JSON.stringify(s.sessions.map((x) => [x.id, x.state, x.tool, Math.round(x.for / 10)])), () =>
     n ? s.sessions.map((x) => el('div', { class: 'setting' },
       el('div', { class: 'what' }, el('b', {}, x.project || 'session'), el('small', {}, STATE_TEXT[x.state] + (x.tool ? ' · ' + x.tool : '') + ' · ' + dur(x.for) + (x.agents ? ` · ${x.agents} sub-agent${x.agents > 1 ? 's' : ''}` : ''))),

@@ -11,11 +11,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ.setdefault("LEO_DATA", tempfile.mkdtemp(prefix="leo-test-"))
 
-from leosys import apps, cityapps, faces, keyfx, keys, matrix, places, policy, prayer, screen, settings  # noqa: E402
+from leosys import apps, cityapps, faces, keyfx, keys, matrix, places, policy, power, prayer, screen, settings  # noqa: E402
 from leosys import privacyuse, smartkeys, taskalerts, taskflash, typingmeter, weather, winstate  # noqa: E402
 from leosys import hook, mcp_server, setup_cmd  # noqa: E402
 from leosys.device import DemoKeyboard  # noqa: E402
 from leosys.engine import Engine  # noqa: E402
+
+winstate.caps_on = lambda: False     # the real Caps Lock light must not decide whether a test passes
 
 
 import struct  # noqa: E402
@@ -1219,6 +1221,160 @@ class ModesTests(unittest.TestCase):
         self.assertFalse(e.handle({"cmd": "mode", "name": "claude_screen", "on": True}, "mcp")["ok"])
         self.assertFalse(e.state()["modes"]["claude_screen"]["on"])
         self.assertFalse(e.handle({"cmd": "mode", "name": "nope", "on": True}, "gui")["ok"])
+
+
+class MasterOffSwitch(unittest.TestCase):
+    """The off switch: leo-sys holds nothing, and nothing wakes it, until it is switched on again."""
+
+    def test_off_refuses_claude_hooks_scripts_and_drawing_and_lets_go_of_everything(self):
+        e, clock = engine(apps={"matrix": "clock"}, push={"enabled": True})
+        e.handle({"cmd": "event", "event": "UserPromptSubmit", "session": "s1", "cwd": "C:/x"}, "hook")
+        e.handle({"cmd": "face", "mood": "done"}, "gui")
+        self.assertTrue(e.sessions and e.manual)
+        self.assertFalse(e.state()["off"])
+        self.assertTrue(e.handle({"cmd": "power", "on": False}, "gui")["ok"])
+        s = e.state()
+        self.assertTrue(s["off"])
+        self.assertFalse(s["connected"])
+        self.assertEqual((s["showing"]["label"], s["sessions"], s["showing"]["matrix"]), ("Switched off", [], None))
+        self.assertIsNone(e.manual)
+        self.assertEqual(e.compose(clock()), (None, None))                     # nothing to draw
+        for req, source in [({"cmd": "face", "mood": "done"}, "mcp"), ({"cmd": "event", "event": "Stop", "session": "s1"}, "hook"),
+                            ({"cmd": "text", "text": "hi"}, "push"), ({"cmd": "keys", "colour": "red"}, "mcp"),
+                            ({"cmd": "nowplaying"}, "mcp"), ({"cmd": "power", "on": True}, "mcp"), ({"cmd": "power", "on": True}, "hook")]:
+            r = e.handle(req, source)
+            self.assertFalse(r["ok"], (req, source))
+            self.assertTrue(r["denied"], (req, source))
+        self.assertEqual(e.sessions, {})                                       # a refused hook event was not even recorded
+        self.assertEqual(e.handle({"cmd": "face", "mood": "done"}, "gui")["denied"], "leo-sys is switched off: switch it on first")
+        self.assertIsNone(e.manual)
+        self.assertTrue(e.handle({"cmd": "pin", "value": True}, "gui")["ok"])   # plain settings still work from the panel
+
+    def test_off_refusals_say_why_and_are_not_logged_but_the_switch_itself_is(self):
+        e, _ = engine()
+        e.handle({"cmd": "power", "on": False}, "gui")
+        before = len(e.log)
+        r = e.handle({"cmd": "face", "mood": "done"}, "mcp")
+        self.assertEqual(r["denied"], power.MESSAGE)
+        for _ in range(20):
+            e.handle({"cmd": "event", "event": "PreToolUse", "session": "s"}, "hook")
+        self.assertEqual(len(e.log), before)                                   # the hooks fire all the time: no flood
+        self.assertIn("switched off", e.log[0]["action"])
+
+    def test_switching_on_again_gives_everything_back(self):
+        e, clock = engine(apps={"matrix": "clock"})
+        e.handle({"cmd": "power", "on": False}, "gui")
+        self.assertTrue(e.handle({"cmd": "power", "on": True}, "gui")["ok"])
+        self.assertFalse(e.state()["off"])
+        self.assertTrue(e.handle({"cmd": "face", "mood": "done"}, "mcp")["ok"])
+        self.assertIsNotNone(e.compose(clock())[0])
+
+    def test_only_the_panel_may_switch_it(self):
+        e, _ = engine()
+        for source in ("mcp", "hook", "push"):
+            self.assertFalse(e.handle({"cmd": "power", "on": False}, source)["ok"], source)
+        self.assertFalse(e.state()["off"])
+
+    def test_the_switch_is_a_file_so_it_survives_a_restart_and_a_second_engine_sees_it(self):
+        e, _ = engine()
+        e.handle({"cmd": "power", "on": False}, "gui")
+        self.assertTrue(e.switch.path.is_file())
+        again = Engine(settings=e.settings, keyboard=DemoKeyboard, clock=Clock(), threads=False)
+        self.assertTrue(again.state()["off"])
+        e.handle({"cmd": "power", "on": True}, "gui")
+        self.assertFalse(e.switch.path.exists())
+        self.assertFalse(again.state()["off"])
+
+    def test_the_worker_closes_its_link_to_the_keyboard_when_switched_off_and_opens_it_again_when_on(self):
+        import threading
+        links = []
+
+        class Link(DemoKeyboard):
+            def __init__(self):
+                super().__init__()
+                self.closed = False
+                links.append(self)
+
+            def close(self):
+                self.closed = True
+
+        def wait_for(cond, what):
+            end = time.time() + 5
+            while time.time() < end and not cond():
+                time.sleep(0.02)
+            self.assertTrue(cond(), what)
+
+        e, _ = engine(apps={"matrix": "clock"})
+        e.keyboard_factory = Link
+        threading.Thread(target=e._worker, daemon=True).start()
+        try:
+            wait_for(lambda: e.connected and links and links[0].frames, "connected and drawing")
+            e.handle({"cmd": "power", "on": False}, "gui")
+            wait_for(lambda: links[0].closed, "the link is closed (so the Leobog app can have the keyboard)")
+            self.assertFalse(e.state()["connected"])
+            frames = links[0].frames
+            time.sleep(0.4)
+            self.assertEqual(links[0].frames, frames)                          # and nothing more is sent
+            self.assertEqual(len(links), 1)                                    # nor reopened while off
+            e.handle({"cmd": "power", "on": True}, "gui")
+            wait_for(lambda: len(links) == 2 and e.connected, "reconnected after switching on")
+        finally:
+            e.quit.set()
+
+    def test_the_hooks_and_the_mcp_server_never_start_the_service_while_off(self):
+        from leosys import client, power as power_mod
+        tmp = Path(tempfile.mkdtemp())
+        with mock.patch.object(power_mod, "DATA_DIR", tmp), mock.patch.object(client, "start_daemon") as start, \
+                mock.patch.object(client, "_request", side_effect=OSError("nothing is listening")):
+            client.ensure_daemon(wait=0.1)                                     # nothing listens and it is switched on: it starts
+            start.assert_called_once()
+            power_mod.Switch().set_off(True)
+            start.reset_mock()
+            self.assertFalse(client.ensure_daemon(wait=0.1))
+            start.assert_not_called()
+            with self.assertRaises(client.SwitchedOff):
+                client.send({"cmd": "event", "event": "Stop"}, "hook")
+            with self.assertRaises(client.SwitchedOff):
+                client.get("/api/claude")
+            start.assert_not_called()
+            self.assertEqual(mcp_server.call_tool("set_face", {"mood": "done"}), mcp_server.OFF_TEXT)
+            self.assertEqual(mcp_server.call_tool("leo_status", {}), mcp_server.OFF_TEXT)
+            start.reset_mock()
+            client.ensure_daemon(wait=0.1, force=True)                         # you asked for the panel: it starts (idle)
+            start.assert_called_once()
+
+    def test_a_running_but_switched_off_service_answers_the_mcp_server_with_a_plain_refusal(self):
+        reply = {"ok": False, "denied": power.MESSAGE, "connected": False}
+        with mock.patch.object(mcp_server, "send", return_value=reply):
+            self.assertEqual(mcp_server.call_tool("show_text", {"text": "hi"}), mcp_server.OFF_TEXT)
+        with mock.patch.object(mcp_server, "get", return_value={"switched_off": True, "permissions": {}}):
+            self.assertIn('"switched_off": true', mcp_server.call_tool("leo_status", {}))
+
+    def test_the_command_line_switch_writes_and_removes_the_file(self):
+        import contextlib
+        import io
+        from leosys import cli, power as power_mod
+        tmp = Path(tempfile.mkdtemp())
+        with mock.patch.object(power_mod, "DATA_DIR", tmp):
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(cli.main(["off"]), 0)
+                self.assertTrue((tmp / "off").is_file())
+                self.assertIn("switched off", out.getvalue())
+                self.assertEqual(cli.main(["on"]), 0)
+            self.assertFalse((tmp / "off").exists())
+
+    def test_the_command_line_says_so_instead_of_a_traceback_when_off(self):
+        import contextlib
+        import io
+        from leosys import cli, client, power as power_mod
+        tmp = Path(tempfile.mkdtemp())
+        with mock.patch.object(power_mod, "DATA_DIR", tmp), mock.patch.object(client, "_request", side_effect=OSError), \
+                mock.patch.object(client, "start_daemon") as start:
+            power_mod.Switch().set_off(True)
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(cli.main(["face", "done"]), 1)
+            self.assertIn("switched off", out.getvalue())
+            start.assert_not_called()
 
 
 class TaskbarAlerts(unittest.TestCase):

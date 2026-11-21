@@ -162,7 +162,8 @@ def make_server(engine, host=HOST, port=PORT, on_quit=None):
             if path == "/api/claude":   # read-only permission summary, for Claude's own status tool
                 st = engine.state()
                 return self._send(200, {"permissions": engine.settings.snapshot()["claude"], "pinned": st["pinned"],
-                                        "connected": st["connected"], "showing": st["showing"]["label"]})
+                                        "connected": st["connected"], "showing": st["showing"]["label"],
+                                        "switched_off": st["off"]})
             if path == "/api/settings":
                 if not self._admin():
                     return

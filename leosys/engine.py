@@ -12,7 +12,7 @@ import os
 import threading
 import time
 
-from . import albums, apps, launch, device, faces, keyfx, media, modes, pcstats, policy, prayer, privacyuse, screen, smartkeys, taskalerts, taskflash, typingmeter, weather, winstate
+from . import albums, apps, launch, device, faces, keyfx, media, modes, pcstats, policy, power, prayer, privacyuse, screen, smartkeys, taskalerts, taskflash, typingmeter, weather, winstate
 from .keys import BY_NAME
 from .config import DATA_DIR
 from .settings import Settings
@@ -23,12 +23,15 @@ STALE_SESSION = 3 * 3600
 URGENCY = ["attention", "working", "thinking", "done", "idle"]   # most urgent first
 VOLUME_POPUP = 2.0    # seconds the volume shows on the number row after it changes
 NUMBER_ROW = ["!1", "@2", "#3", "$4", "%5", "^6", "&7", "*8", "(9", ")0"]
+OFF_OK = {"power", "status", "pin", "mode", "typingreset"}   # while switched off: only the switch itself and plain settings
 
 
 class Engine:
     def __init__(self, settings=None, keyboard=device.Keyboard, clock=time.time, threads=True,
-                 monitor=None, media_watch=None, probe=None, shortcuts=None, screen_watch=None, weather_watch=None, privacy_watch=None, flash_watch=None, typing_meter=None):
+                 monitor=None, media_watch=None, probe=None, shortcuts=None, screen_watch=None, weather_watch=None, privacy_watch=None, flash_watch=None, typing_meter=None,
+                 switch=None):
         self.settings = settings or Settings()
+        self.switch = switch or power.Switch(self.settings.path.parent / "off")    # the master off switch, beside the settings
         real = threads and os.name == "nt"
         self.monitor = monitor or (pcstats.Monitor(clock=clock) if real else pcstats.FakeMonitor(clock=clock))
         self.media = media_watch or (media.MediaWatch(clock=clock) if real else media.FakeMediaWatch(clock=clock))
@@ -74,7 +77,12 @@ class Engine:
     def handle(self, req, source="mcp"):
         if not isinstance(req, dict) or "cmd" not in req:
             return {"ok": False, "error": "bad request"}
-        if source == "push":                  # a script on this PC: its own switch, not Claude's permissions
+        if self.switch.is_off() and req.get("cmd") not in OFF_OK:
+            # Switched off: nothing from Claude's tools, the hooks or scripts, and nothing that would draw. Not logged: the
+            # hooks fire all the time, and a long list of refusals would bury everything else.
+            return {"ok": False, "denied": power.MESSAGE if source not in policy.PRIVILEGED
+                    else "leo-sys is switched off: switch it on first", "connected": False}
+        if source == "push":                # a script on this PC: its own switch, not Claude's permissions
             with self.lock:
                 return self._handle_push(req)
         with self.lock:
@@ -90,7 +98,7 @@ class Engine:
         if cmd in policy.MEDIA_TOOL_FOR:
             return self._handle_media(req, source)       # outside the lock: Windows may take a moment to answer
         with self.lock:
-            if cmd in ("pin", "resume", "status", "alerttest", "typingreset", "mode") and source not in policy.PRIVILEGED:
+            if cmd in ("pin", "resume", "status", "alerttest", "typingreset", "mode", "power") and source not in policy.PRIVILEGED:
                 return {"ok": False, "denied": f"'{cmd}' is only for the control panel", "connected": self.connected}
             cfg = self.settings.snapshot()["claude"]
             ok, reason, req = policy.decide(cfg, req, source, self.pinned, datetime.datetime.now(),
@@ -100,7 +108,7 @@ class Engine:
                 return {"ok": False, "denied": reason, "connected": self.connected}
             try:
                 self._apply(req, source)
-            except (ValueError, KeyError, TypeError, OverflowError) as e:
+            except (ValueError, KeyError, TypeError, OverflowError, OSError) as e:
                 self._log(source, policy.describe(req), False, f"invalid: {e}")
                 return {"ok": False, "error": str(e)}
             if source not in policy.PRIVILEGED:
@@ -223,6 +231,13 @@ class Engine:
                 raise ValueError(f"unknown mode {name!r}")
             (modes.turn_on if req.get("on") else modes.turn_off)(self.settings, name)
             self._log(source, f"mode · {modes.MODES[name]['label']} {'on' if req.get('on') else 'off'}")
+        elif cmd == "power":
+            off = not req.get("on")
+            if self.switch.set_off(off) != off:
+                raise ValueError("could not change the master switch")
+            if off:
+                self._rest()                  # at once; the worker then closes its link to the keyboard
+            self._log(source, "leo-sys switched off: the keyboard is let go" if off else "leo-sys switched on")
         elif cmd == "typingreset":
             self.typing.reset()
             self._log(source, "typing counts cleared")
@@ -329,6 +344,9 @@ class Engine:
     # ---- what to show right now ---------------------------------------------------------------
     def compose(self, now):
         """Decide the matrix frame and key colours for this moment. None means hand that part back."""
+        if self.switch.is_off():
+            self._rest()
+            return None, None
         with self.lock:
             snap = self.settings.snapshot()
             bright = snap["brightness"]
@@ -441,6 +459,22 @@ class Engine:
             self.shown = {"matrix": matrix, "keys": keys, "label": shown_label, "kind": kind}
             return matrix, keys
 
+    def _rest(self):
+        """Switched off: forget everything live and stop everything that listens. The worker closes the keyboard link."""
+        with self.lock:
+            self.manual = self.manual_keys = self.flash = self.alert = None
+            self.sessions.clear()
+            self.mood, self.mood_since = None, self.clock()
+            self.connected, self.last_error = False, ""
+            self.shown = {"matrix": None, "keys": None, "label": "Switched off", "kind": "off"}
+            self.screen_seen = {"on": False, "error": ""}
+        self.typing.set_enabled(False)               # stops counting (and forgets, as always when it is off)
+        if self.flashes.running():
+            self.flashes.stop()
+            self.flashes.clear()
+        # The screen, PC, media, weather and privacy watchers read only while asked, and nothing asks now: they go idle on
+        # their own within a few seconds.
+
     def _raise_alert(self, exe, now, cfg, force=False):
         """Show an alert for a program unless it is ignored or raised one a moment ago."""
         if not force and (not taskalerts.accept(exe, cfg) or now - self.alert_last.get(exe, -1e9) < float(cfg["cooldown_s"])):
@@ -523,6 +557,14 @@ class Engine:
             if self.keyboard_factory is device.Keyboard and t0 - last_app_check > 10:
                 last_app_check = t0
                 self.official_app = device.official_app_running()
+            if self.switch.is_off():             # the master switch: let go of the keyboard entirely, so the Leobog app can have it
+                if kb is not None:
+                    kb.close()
+                    kb = None
+                last_m = last_k = None
+                self._rest()
+                self.quit.wait(0.5)
+                continue
             if kb is None:
                 try:
                     kb = self.keyboard_factory()
@@ -606,6 +648,7 @@ class Engine:
                     "for": now - x["since"], "idle_for": now - x["last_event"]})
             m = self.shown["matrix"]
             return {
+                "off": self.switch.is_off(),
                 "connected": self.connected, "error": self.last_error, "official_app": self.official_app,
                 "device": getattr(self.keyboard_factory, "name", "keyboard"),
                 "pinned": self.pinned, "brightness": s["brightness"],

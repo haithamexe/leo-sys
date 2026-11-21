@@ -7,8 +7,12 @@ import sys
 import time
 from pathlib import Path
 
-from . import launch
+from . import launch, power
 from .config import DATA_DIR, HOST, PORT
+
+
+class SwitchedOff(ConnectionError):
+    """The master switch is off and no service is running: nothing is started on its behalf."""
 
 
 def _request(method, path, body=None, token=None, timeout=3.0):
@@ -35,12 +39,15 @@ def start_daemon():
                      stderr=subprocess.DEVNULL)
 
 
-def ensure_daemon(wait=8.0):
+def ensure_daemon(wait=8.0, force=False):
+    """Is the service running? Starts it if not, unless the master switch is off (`force`: you asked for it, so do)."""
     try:
         _request("GET", "/api/ping", timeout=0.6)
         return True
     except OSError:
         pass
+    if not force and power.Switch().is_off():
+        return False                      # the hooks and the MCP server must never wake a switched-off leo-sys
     start_daemon()
     deadline = time.time() + wait
     while time.time() < deadline:
@@ -53,16 +60,23 @@ def ensure_daemon(wait=8.0):
     return False
 
 
+def _unreachable():
+    """The error for a service that is not there and was not started."""
+    if power.Switch().is_off():
+        return SwitchedOff(power.MESSAGE)
+    return ConnectionError("could not start the leo-sys service")
+
+
 def send(req, source="mcp"):
-    """Returns the daemon's reply. Raises ConnectionError if it can't be reached or started."""
+    """Returns the daemon's reply. Raises ConnectionError if it can't be reached or started (SwitchedOff when that is why)."""
     if not ensure_daemon():
-        raise ConnectionError("could not start the leo-sys service")
+        raise _unreachable()
     return _request("POST", "/api/cmd", {"req": req, "source": source})
 
 
 def get(path):
     if not ensure_daemon():
-        raise ConnectionError("could not start the leo-sys service")
+        raise _unreachable()
     return _request("GET", path)
 
 

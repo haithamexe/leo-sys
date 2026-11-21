@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 (2026-11-21)
+
+- **Master off switch** (*leo-sys on* in the panel's top bar, `leo-sys off` / `on`): leo-sys lets go of the keyboard
+  completely, so the Leobog app can use it without both fighting over the screens. While off it stops every watcher, refuses
+  Claude's tools, the hooks and scripts, and cannot be woken: the hooks and the MCP server no longer start the service. It
+  is a file in the data folder, so it stays off across restarts and updates until switched on. Uninstall removes it.
+- Tests no longer depend on whether Caps Lock is on.
+
 ## 0.3.0 (2026-11-19)
 
 - **Modes**: a switch that sets a few settings together and puts them back when switched off. The first, *Claude and the

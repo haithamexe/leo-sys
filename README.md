@@ -13,8 +13,8 @@ your machine.
 
 ## Quick start
 
-Plug the keyboard in **by cable** (the screens only work wired) and close the Leobog app from its tray icon, then
-either:
+Plug the keyboard in **by cable** (the screens only work wired). Close the Leobog app from its tray icon, or keep it and
+use the [master off switch](#the-master-off-switch). Then either:
 
 - **Download `leo-sys-setup.exe`** from the [latest release](https://github.com/haithamexe/leo-sys/releases/latest) and
   double-click it. It asks once, then installs leo-sys and opens the panel. (Needs Python 3.9 or newer on your PATH.
@@ -47,6 +47,18 @@ With several sessions open, the most urgent one is shown and each session gets a
 
 The keyboard goes back to its own effects about a second after frames stop, so the master switch, quiet hours and
 an idle Claude simply stop sending.
+
+## The master off switch
+
+The Leobog app and leo-sys write to the same screens, so running both breaks the keyboard. The **leo-sys on** switch at the
+top of the panel (or `leo-sys off` in a terminal) ends that: leo-sys **lets go of the keyboard completely** (its link is
+closed, so the Leobog app can have it), stops every watcher (screen, typing meter, taskbar alerts, PC and media), refuses
+everything from Claude's tools, the hooks and scripts, and **cannot be woken**: the hooks and the MCP server do not start
+the service again, and Claude is told plainly that leo-sys is switched off. If Windows' start-up or the desktop icon starts
+the service anyway, it runs idle, holding only the panel so you can switch back on; it never opens the keyboard.
+
+It is one small file (`off` in the data folder), so it survives restarts, reboots and updates until you switch leo-sys on
+(in the panel, or `leo-sys on`). Uninstalling removes it. Your settings are untouched either way.
 
 ## Modes and screen-colour accuracy
 
@@ -201,6 +213,7 @@ python leo.py setup | uninstall     install or remove the app, hooks, MCP server
 python leo.py build-installer       build dist/leo-sys-setup.exe (what a release ships)
 python leo.py gui                   open the panel
 python leo.py start | stop          run or stop the background service
+python leo.py off | on              the master switch: let go of the keyboard (for the Leobog app) / take it back
 python leo.py demo                  try the panel without the keyboard
 python leo.py face <mood>           idle thinking working attention done error sleep splash
 python leo.py text HELLO            show a message on the matrix
